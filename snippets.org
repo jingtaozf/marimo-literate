@@ -1,0 +1,2857 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._snippets
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* snippets
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.snippets
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/snippets.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import os
+from dataclasses import dataclass
+from typing import Any, Awaitable, Generator, List, Optional
+
+from marimo._ast.codegen import get_app
+from marimo._utils.paths import import_files
+
+#+END_SRC
+** @dataclass: Class SnippetSection
+#+BEGIN_SRC python
+@dataclass
+class SnippetSection:
+    id: str
+    html: Optional[str] = None
+    code: Optional[str] = None
+
+#+END_SRC
+** @dataclass: Class Snippet
+#+BEGIN_SRC python
+@dataclass
+class Snippet:
+    title: str
+    sections: List[SnippetSection]
+
+#+END_SRC
+** @dataclass: Class Snippets
+#+BEGIN_SRC python
+@dataclass
+class Snippets:
+    snippets: List[Snippet]
+
+#+END_SRC
+** Function read_snippets
+#+BEGIN_SRC python
+async def read_snippets() -> Snippets:
+    snippets: List[Snippet] = []
+
+    for file in snippet_files():
+        app = get_app(file)
+        assert app is not None
+        sections: List[SnippetSection] = []
+        title = ""
+
+        for cell in app._cell_manager.cells():
+            if not cell:
+                continue
+
+            code = cell._cell.code
+            if should_ignore_code(code):
+                continue
+
+            if is_markdown(code):
+                if not title and "# " in code:
+                    title = get_title_from_code(code)
+
+                ret = cell.run()
+                if isinstance(ret, Awaitable):
+                    output, _defs = await ret
+                else:
+                    output, _defs = ret
+                sections.append(
+                    SnippetSection(html=output.text, id=cell._cell.cell_id)
+                )
+            else:
+                sections.append(
+                    SnippetSection(code=code, id=cell._cell.cell_id)
+                )
+
+        snippets.append(Snippet(title=title, sections=sections))
+
+    return Snippets(
+        snippets=sorted(snippets, key=lambda snippet: snippet.title)
+    )
+
+#+END_SRC
+** Function should_ignore_code
+#+BEGIN_SRC python
+def should_ignore_code(code: str) -> bool:
+    return code == "import marimo as mo"
+
+#+END_SRC
+** Function get_title_from_code
+#+BEGIN_SRC python
+def get_title_from_code(code: str) -> str:
+    if not code:
+        return ""
+    if "# " in code:
+        # title is the start of # and end of \n
+        start = code.find("#")
+        end = code[start:].find("\n")
+        return code[start : end + start].replace("#", "", 1).strip()
+    return ""
+
+#+END_SRC
+** Function is_markdown
+#+BEGIN_SRC python
+def is_markdown(code: str) -> bool:
+    return code.startswith("mo.md")
+
+#+END_SRC
+** Function snippet_files
+#+BEGIN_SRC python
+def snippet_files() -> Generator[str, Any, None]:
+    root = os.path.realpath(
+        str(import_files("marimo").joinpath("_snippets").joinpath("data"))
+    )
+    for _root, _dirs, files in os.walk(root):
+        for file in files:
+            if file.endswith(".py"):
+                yield os.path.join(root, file)
+
+#+END_SRC
+* data
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data
+:END:
+** altair-0
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-0
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-0.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Visualization: Interactive Scatter Plot in Altair
+
+        Altair lets you easily create an interactive scatter plot from data stored in a Pandas dataframe.
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # load an example dataset
+    from vega_datasets import data
+
+    cars = data.cars()
+
+    # plot the dataset, referencing dataframe column names
+    import altair as alt
+
+    (
+        alt.Chart(cars)
+        .mark_point()
+        .encode(x="Horsepower", y="Miles_per_Gallon", color="Origin")
+        .interactive()
+    )
+    return alt, cars, data
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** altair-1
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-1
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-1.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Visualization: Bar Plot in Altair
+
+        This shows a simple bar plot in Altair, showing the mean miles per gallon as a function of origin for a number of car models:
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # load an example dataset
+    from vega_datasets import data
+
+    cars = data.cars()
+
+    # plot the dataset, referencing dataframe column names
+    import altair as alt
+
+    alt.Chart(cars).mark_bar().encode(
+        x="mean(Miles_per_Gallon)", y="Origin", color="Origin"
+    )
+    return alt, cars, data
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** altair-2
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-2
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-2.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Visualization: Histogram in Altair
+
+        Altair provides a variety of aggregation operations in order to build custom histograms. Here is a simple example
+
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # load an example dataset
+    from vega_datasets import data
+
+    cars = data.cars()
+
+    # plot the dataset, referencing dataframe column names
+    import altair as alt
+
+    alt.Chart(cars).mark_bar().encode(
+        x=alt.X("Miles_per_Gallon", bin=True),
+        y="count()",
+    )
+    return alt, cars, data
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** altair-3
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-3
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-3.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Visualization: Stacked Histogram in Altair
+
+        If you take a standard histogram and encode another field with color, the result will be a stacked histogram:
+
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # load an example dataset
+    from vega_datasets import data
+
+    cars = data.cars()
+
+    # plot the dataset, referencing dataframe column names
+    import altair as alt
+
+    alt.Chart(cars).mark_bar().encode(
+        x=alt.X("Miles_per_Gallon", bin=True), y="count()", color="Origin"
+    )
+    return alt, cars, data
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** altair-4
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-4
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-4.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Visualization: Scatter Plot with Rolling Mean in Altair
+
+        This shows a scatter chart of miles per gallon as a function of year, with lines indicating the mean values for each country within the given year.
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # load an example dataset
+    from vega_datasets import data
+
+    cars = data.cars()
+
+    import altair as alt
+
+    points = (
+        alt.Chart(cars)
+        .mark_point()
+        .encode(x="Year:T", y="Miles_per_Gallon", color="Origin")
+        .properties(width=800)
+    )
+
+    lines = (
+        alt.Chart(cars)
+        .mark_line()
+        .encode(x="Year:T", y="mean(Miles_per_Gallon)", color="Origin")
+        .properties(width=800)
+        .interactive(bind_y=False)
+    )
+
+    points + lines
+    return alt, cars, data, lines, points
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** altair-5
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-5
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-5.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        #  Visualization: Interactive Brushing in Altair
+
+        With a few extra lines of code on top of a standard scatter plot, you can add selection behavior to your scatter plot. This lets you click and drag to select points.
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # load an example dataset
+    from vega_datasets import data
+
+    cars = data.cars()
+
+    import altair as alt
+
+    interval = alt.selection_interval()
+
+    alt.Chart(cars).mark_point().encode(
+        x="Horsepower",
+        y="Miles_per_Gallon",
+        color=alt.condition(interval, "Origin", alt.value("lightgray")),
+    ).add_params(interval)
+    return alt, cars, data, interval
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** altair-6
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-6
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-6.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Visualization: Linked Brushing in Altair
+
+        If you apply the same selection to multiple panels of an Altair chart, the selections will be linked:
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # load an example dataset
+    from vega_datasets import data
+
+    cars = data.cars()
+
+    import altair as alt
+
+    interval = alt.selection_interval()
+
+    base = (
+        alt.Chart(cars)
+        .mark_point()
+        .encode(
+            y="Miles_per_Gallon",
+            color=alt.condition(interval, "Origin", alt.value("lightgray")),
+        )
+        .add_params(interval)
+    )
+
+    base.encode(x="Acceleration") | base.encode(x="Horsepower")
+    return alt, base, cars, data, interval
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** altair-7
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-7
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-7.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Visualization: Linked Scatter-Plot and Histogram in Altair
+
+        Altair selections can be used for a variety of things. This example shows a scatter plot and a histogram with selections over both that allow exploring the relationships between points
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # load an example dataset
+    from vega_datasets import data
+
+    cars = data.cars()
+
+    import altair as alt
+
+    interval = alt.selection_interval()
+
+    points = (
+        alt.Chart(cars)
+        .mark_point()
+        .encode(
+            x="Horsepower",
+            y="Miles_per_Gallon",
+            color=alt.condition(interval, "Origin", alt.value("lightgray")),
+        )
+        .add_params(interval)
+    )
+
+    histogram = (
+        alt.Chart(cars)
+        .mark_bar()
+        .encode(x="count()", y="Origin", color="Origin")
+        .transform_filter(interval)
+    )
+
+    points & histogram
+    return alt, cars, data, histogram, interval, points
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** altair-8
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.altair-8
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/altair-8.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Visualization: Time Series Line Plot in Altair
+
+        Altair handles temporal types natively by using the ``:T`` type marker. An example is in this plot of stock prices over time
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    from vega_datasets import data
+
+    stocks = data.stocks()
+
+    import altair as alt
+
+    alt.Chart(stocks).mark_line().encode(
+        x="date:T", y="price", color="symbol"
+    ).interactive(bind_y=False)
+    return alt, data, stocks
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** cli-args-0
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.cli-args-0
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/cli-args-0.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.4.0"
+#+BEGIN_SRC python
+__generated_with = "0.4.0"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # CLI Arguments: Reading CLI arguments
+
+        Use `mo.cli_args` to access command line arguments passed to the notebook.
+        For example, you can pass arguments to the notebook when running it as an
+        application with `marimo run`.
+
+        ```bash
+        marimo run app.py -- --arg1 value1 --arg2 value2
+        ```
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    params = mo.cli_args()
+    params
+    return params,
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-0
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-0
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-0.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Create from lists of values
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    last_names = ["Connor", "Connor", "Reese"]
+    first_names = ["Sarah", "John", "Kyle"]
+    df = pd.DataFrame(
+        {
+            "first_name": first_names,
+            "last_name": last_names,
+        }
+    )
+    df
+    return df, first_names, last_names, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-1
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-1
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-1.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Rename multiple Columns
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "Year": [2016, 2015, 2014, 2013, 2012],
+            "Top Animal": ["Giant panda", "Chicken", "Pig", "Turkey", "Dog"],
+        }
+    )
+
+    df.rename(
+        columns={
+            "Year": "Calendar Year",
+            "Top Animal": "Favorite Animal",
+        },
+        inplace=True,
+    )
+    df
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-10
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-10
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-10.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Explode a column containing dictionary values into multiple columns
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        This code transforms or splits the dictionary column into many columns.
+
+        E.g. The output DataFrame of this cell will have columns named [`date, letter, fruit, weather`].
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "date": ["2022-09-14", "2022-09-15", "2022-09-16"],
+            "letter": ["A", "B", "C"],
+            "dict": [
+                {"fruit": "apple", "weather": "aces"},
+                {"fruit": "banana", "weather": "bad"},
+                {"fruit": "cantaloupe", "weather": "cloudy"},
+            ],
+        }
+    )
+
+    pd.concat([df.drop(["dict"], axis=1), df["dict"].apply(pd.Series)], axis=1)
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-11
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-11
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-11.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Extract values using regexp (regular expression)
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "request": ["GET /index.html?baz=3", "GET /foo.html?bar=1"],
+        }
+    )
+
+    df["request"].str.extract(r"GET /([^?]+)\?", expand=True)
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-12
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-12
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-12.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas Timestamp: Convert string to Timestamp, using date only
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        I.e. Midnight on the given date.
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    pd.Timestamp("9/27/22").tz_localize("US/Pacific")
+    return (pd,)
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-13
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-13
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-13.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas Timestamp: Convert string to Timestamp
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    pd.Timestamp("9/27/22 06:59").tz_localize("US/Pacific")
+    return (pd,)
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-14
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-14
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-14.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas: Create a TimeDelta using `unit`
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        From an integer.
+        `unit` is a string, defaulting to `ns`. Possible values:
+
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    pd.to_timedelta(1, unit="h")
+    return (pd,)
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-15
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-15
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-15.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas: Create a TimeDelta using available kwargs
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        Example keyworded args: {days, seconds, microseconds, milliseconds, minutes, hours, weeks}
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    pd.Timedelta(days=2)
+    return (pd,)
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-16
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-16
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-16.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas: Create a TimeDelta from a string
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    pd.Timedelta("2 days 2 hours 15 minutes 30 seconds")
+    return (pd,)
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-17
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-17
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-17.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas: Replace NaN values in a Column
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import numpy as np
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "dogs": [5, 10, np.nan, 7],
+        }
+    )
+
+    df["dogs"].replace(np.nan, 0, regex=True)
+    return df, np, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-18
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-18
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-18.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Drop duplicate rows
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "first_name": ["Sarah", "John", "Kyle", "Joe"],
+            "last_name": ["Connor", "Connor", "Reese", "Bonnot"],
+        }
+    )
+    df.set_index("last_name", inplace=True)
+
+    df.loc[~df.index.duplicated(), :]
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-19
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-19
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-19.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Ignore one Column
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "first_name": ["Sarah", "John", "Kyle", "Joe"],
+            "last_name": ["Connor", "Connor", "Reese", "Bonnot"],
+        }
+    )
+
+    df.loc[:, df.columns != "last_name"]
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-2
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-2
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-2.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Query by regexp (regular expression)
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "first_name": ["Sarah", "John", "Kyle", "Joe"],
+            "last_name": ["Connor", "Connor", "Reese", "Bonnot"],
+        }
+    )
+
+    df[df.last_name.str.match(".*onno.*")]
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-20
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-20
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-20.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Intersect Indexes
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    terminator_df = pd.DataFrame(
+        {
+            "first_name": ["Sarah", "John", "Kyle"],
+            "last_name": ["Connor", "Connor", "Reese"],
+        }
+    )
+    terminator_df.set_index("first_name", inplace=True)
+
+    buckaroo_df = pd.DataFrame(
+        {
+            "first_name": ["John", "John", "Buckaroo"],
+            "last_name": ["Parker", "Whorfin", "Banzai"],
+        }
+    )
+    buckaroo_df.set_index("first_name", inplace=True)
+
+    terminator_df.index.intersection(buckaroo_df.index).shape
+    return buckaroo_df, pd, terminator_df
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-21
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-21
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-21.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Select all rows from A that are not in B, using the index
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    terminator_df = pd.DataFrame(
+        {
+            "first_name": ["Sarah", "John", "Kyle"],
+            "last_name": ["Connor", "Connor", "Reese"],
+        }
+    )
+    terminator_df.set_index("first_name", inplace=True)
+
+    buckaroo_df = pd.DataFrame(
+        {
+            "first_name": ["John", "John", "Buckaroo"],
+            "last_name": ["Parker", "Whorfin", "Banzai"],
+        }
+    )
+    buckaroo_df.set_index("first_name", inplace=True)
+
+    terminator_df[~terminator_df.index.isin(buckaroo_df.index)]
+    return buckaroo_df, pd, terminator_df
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-22
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-22
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-22.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Select rows by an attribute of a column value
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        Use the Series `map()` method.
+        E.g. To filter by the length of a column values:
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "first_name": ["Sarah", "John", "Kyle"],
+            "last_name": ["Connor", "Connor", "Reese"],
+        }
+    )
+
+    df[df["last_name"].map(len) == 5]
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-23
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-23
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-23.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Sort the count of rows grouped on columns
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "first_name": ["Sarah", "John", "Kyle"],
+            "last_name": ["Connor", "Connor", "Reese"],
+        }
+    )
+
+    df.groupby(["last_name"]).size().sort_values(ascending=False)
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-24
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-24
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-24.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Reshape to have 1 row per value in a list column
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        Creates a new DataFrame that is a transformed version of the input. E.g.
+        *   Input: df with a column named `msg_ids` that is a list of values (i.e. many per row, at least in some rows).
+        *   Output: new_df which has 1 row per unique value found in any of the original `msg_ids` lists, with that value in a new column named `msg_id`.
+
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "date": ["9/1/22", "9/2/22", "9/3/22"],
+            "action": ["Add", "Update", "Delete"],
+            "msg_ids": [[1, 2, 3], [], [2, 3]],
+        }
+    )
+    df.set_index("date", inplace=True)
+
+    temp_series = df["msg_ids"].apply(pd.Series, 1).stack()
+    temp_series.index = temp_series.index.droplevel(-1)
+    temp_series.name = "msg_id"
+    new_df = temp_series.to_frame()
+    new_df.set_index("msg_id", inplace=True)
+    new_df.loc[~new_df.index.duplicated(), :]  # Drop duplicates.
+    return df, new_df, pd, temp_series
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-25
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-25
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-25.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas: DataFrames: Group Timeseries by Frequency
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        You can group timestamped data into intervals of arbitrary duration using a Grouper object to specify groupby instructions.  The `freq` parameter is a string that may contain an integer followed by an [offset alias](https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases).  E.g. To see output for 2 minute long intervals:
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "time": [
+                "2022-09-01 00:00:01-07:00",
+                "2022-09-01 00:00:02-07:00",
+                "2022-09-01 00:01:00-07:00",
+                "2022-09-01 00:02:00-07:00",
+                "2022-09-01 00:03:00-07:00",
+                "2022-09-01 00:04:00-07:00",
+                "2022-09-01 00:05:00-07:00",
+                "2022-09-01 00:07:00-07:00",
+            ],
+            "requests": [1, 1, 1, 1, 1, 1, 1, 1],
+        }
+    )
+    df["time"] = pd.to_datetime(df.time)
+
+    df.groupby(pd.Grouper(key="time", freq="2min")).sum()
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-3
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-3
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-3.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Query by variable value
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        Evaluate a variable as the value to find.
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "first_name": ["Sarah", "John", "Kyle"],
+            "last_name": ["Connor", "Connor", "Reese"],
+        }
+    )
+
+    foo = "Connor"
+    df.query("last_name == @foo")
+    return df, foo, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-4
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-4
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-4.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.9"
+#+BEGIN_SRC python
+__generated_with = "0.3.9"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Query using variable value as a column name
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        Evaluate a variable, to use its value as the name of a column in a query.
+
+        E.g. Query for rows where `John` is the value in the column named `first_name`.
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        data={
+            "first_name": ["Sarah", "John", "Kyle"],
+            "last_name": ["Connor", "Connor", "Reese"],
+        }
+    )
+
+    column_name = "first_name"
+    df.query(f"`{column_name}` == 'John'")
+    return column_name, df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-5
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-5
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-5.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Query by Timestamp above a value
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "time": [
+                "2022-09-14 00:52:00-07:00",
+                "2022-09-14 00:52:30-07:00",
+                "2022-09-14 01:52:30-07:00",
+            ],
+            "letter": ["A", "B", "C"],
+        }
+    )
+    df["time"] = pd.to_datetime(df.time)
+
+    df.query('time >= "2022-09-14 00:52:30-07:00"')
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-6
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-6
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-6.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Query for Timestamp between two values
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "time": [
+                "2022-09-14 00:52:00-07:00",
+                "2022-09-14 00:52:30-07:00",
+                "2022-09-14 01:52:30-07:00",
+            ],
+            "letter": ["A", "B", "C"],
+        }
+    )
+    df["time"] = pd.to_datetime(df.time)
+
+    begin_ts = "2022-09-14 00:52:00-07:00"
+    end_ts = "2022-09-14 00:54:00-07:00"
+
+    df.query("@begin_ts <= time < @end_ts")
+    return begin_ts, df, end_ts, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-7
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-7
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-7.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Filter by Timestamp in DatetimeIndex using `.loc[]`
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "time": [
+                "2022-09-14 00:52:00-07:00",
+                "2022-09-14 00:52:30-07:00",
+                "2022-09-14 01:52:30-07:00",
+            ],
+            "letter": ["A", "B", "C"],
+        }
+    )
+    df["time"] = pd.to_datetime(df.time)
+    df.set_index("time", inplace=True)
+
+    df.loc["2022-09-14":"2022-09-14 00:53"]
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-8
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-8
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-8.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas DataFrame: Filter by Timestamp using TimeDelta string
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "time": [
+                "2022-09-14 00:52:00-07:00",
+                "2022-09-14 00:52:30-07:00",
+                "2022-09-14 01:52:30-07:00",
+            ],
+            "letter": ["A", "B", "C"],
+        }
+    )
+    df["time"] = pd.to_datetime(df.time)
+
+    def rows_in_time_range(df, time_column, start_ts_str, timedelta_str):
+        # Return rows from df, where start_ts < time_column <= start_ts + delta.
+        # start_ts_str can be a date '2022-09-01' or a time '2022-09-14 00:52:00-07:00'
+        # timedelta_str examples: '2 minutes'  '2 days 2 hours 15 minutes 30 seconds'
+        start_ts = pd.Timestamp(start_ts_str).tz_localize("US/Pacific")
+        end_ts = start_ts + pd.to_timedelta(timedelta_str)
+        return df.query("@start_ts <= {0} < @end_ts".format(time_column))
+
+    rows_in_time_range(df, "time", "2022-09-14 00:00", "52 minutes 31 seconds")
+    return df, pd, rows_in_time_range
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** pandas-9
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.pandas-9
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/pandas-9.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.3.8"
+#+BEGIN_SRC python
+__generated_with = "0.3.8"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Pandas: Describe Timestamp values in a column
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "time": [
+                "2022-09-14 00:52:00-07:00",
+                "2022-09-14 00:52:30-07:00",
+                "2022-09-14 01:52:30-07:00",
+            ],
+            "letter": ["A", "B", "C"],
+        }
+    )
+    df["time"] = pd.to_datetime(df.time)
+
+    df["time"].describe(datetime_is_numeric=True)
+    return df, pd
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** query-params-0
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.query-params-0
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/query-params-0.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.4.0"
+#+BEGIN_SRC python
+__generated_with = "0.4.0"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Query Parameters: Reading query parameters
+
+        Use `mo.query_params` to access query parameters passed to the notebook.
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    params = mo.query_params()
+    print(params)
+    return (params,)
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+** query-params-1
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._snippets.data.query-params-1
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_snippets/data/query-params-1.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+*** Assignment __generated_with = "0.4.0"
+#+BEGIN_SRC python
+__generated_with = "0.4.0"
+
+#+END_SRC
+*** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        r"""
+        # Query Parameters: Writing to query parameters
+
+        You can also use `mo.query_params` to set query parameters in order
+        to keep track of state in the URL. This is useful for bookmarking
+        or sharing a particular state of the notebook while running as an
+        application with `marimo run`.
+        """
+    )
+    return
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    query_params = mo.query_params()
+    return query_params,
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, query_params):
+    slider = mo.ui.slider(
+        0,
+        10,
+        value=query_params.get("slider") or 1,
+        on_change=lambda x: query_params.set("slider", x),
+    )
+    slider
+    return slider,
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, query_params):
+    search = mo.ui.text(
+        value=query_params.get("search") or "",
+        on_change=lambda x: query_params.set("search", x),
+    )
+    search
+    return search,
+
+#+END_SRC
+*** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+*** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC

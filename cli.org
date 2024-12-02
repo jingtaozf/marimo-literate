@@ -1,0 +1,3666 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._cli
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/__init__.py
+:END:
+** Comment
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+#+END_SRC
+* cli
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.cli
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/cli.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import sys
+import tempfile
+from typing import Any, Optional
+
+import click
+
+import marimo._cli.cli_validators as validators
+from marimo import __version__, _loggers
+from marimo._ast import codegen
+from marimo._cli.config.commands import config
+from marimo._cli.convert.commands import convert
+from marimo._cli.development.commands import development
+from marimo._cli.envinfo import get_system_info
+from marimo._cli.export.commands import export
+from marimo._cli.file_path import validate_name
+from marimo._cli.parse_args import parse_args
+from marimo._cli.print import red
+from marimo._cli.run_docker import (
+    prompt_run_in_docker_container,
+)
+from marimo._cli.upgrade import check_for_updates, print_latest_version
+from marimo._config.settings import GLOBAL_SETTINGS
+from marimo._server.file_router import AppFileRouter
+from marimo._server.model import SessionMode
+from marimo._server.start import start
+from marimo._server.tokens import AuthToken
+from marimo._tutorials import (
+    Tutorial,
+    create_temp_tutorial_file,
+    tutorial_order,
+)
+from marimo._utils.marimo_path import MarimoPath
+
+#+END_SRC
+** Function helpful_usage_error
+#+BEGIN_SRC python
+def helpful_usage_error(self: Any, file: Any = None) -> None:
+    if file is None:
+        file = click.get_text_stream("stderr")
+    color = None
+    click.echo(
+        red("Error") + ": %s\n" % self.format_message(),
+        file=file,
+        color=color,
+    )
+    if self.ctx is not None:
+        color = self.ctx.color
+        click.echo(self.ctx.get_help(), file=file, color=color)
+
+#+END_SRC
+** Assignment click.exceptions.UsageError.show = helpful_usage_error
+#+BEGIN_SRC python
+click.exceptions.UsageError.show = helpful_usage_error
+
+#+END_SRC
+** Function _key_value_bullets
+#+BEGIN_SRC python
+# type: ignore
+
+
+def _key_value_bullets(items: list[tuple[str, str]]) -> str:
+    max_length = max(len(item[0]) for item in items)
+    lines = []
+
+    def _sep(desc: str) -> str:
+        return ":" if desc else ""
+
+    for key, desc in items:
+        # "\b" tells click not to reformat our text
+        lines.append("\b")
+        lines.append(
+            "  * "
+            + key
+            + _sep(desc)
+            + " " * (max_length - len(key) + 2)
+            + desc
+        )
+    return "\n".join(lines)
+
+#+END_SRC
+** Function _resolve_token
+#+BEGIN_SRC python
+def _resolve_token(
+    token: bool, token_password: Optional[str]
+) -> Optional[AuthToken]:
+    if token_password:
+        return AuthToken(token_password)
+    elif token is False:
+        # Empty means no auth
+        return AuthToken("")
+    # None means use the default (generated) token
+    return None
+
+#+END_SRC
+** Assignment main_help_msg
+#+BEGIN_SRC python
+main_help_msg = "\n".join(
+    [
+        "\b",
+        "Welcome to marimo!",
+        "\b",
+        "Getting started:",
+        _key_value_bullets(
+            [
+                ("marimo tutorial intro", ""),
+            ]
+        ),
+        "\b",
+        "Example usage:",
+        _key_value_bullets(
+            [
+                (
+                    "marimo edit",
+                    "create or edit notebooks",
+                ),
+                (
+                    "marimo edit notebook.py",
+                    "create or edit a notebook called notebook.py",
+                ),
+                (
+                    "marimo run notebook.py",
+                    "run a notebook as a read-only app",
+                ),
+                (
+                    "marimo tutorial --help",
+                    "list tutorials",
+                ),
+            ]
+        ),
+    ]
+)
+
+#+END_SRC
+** Assignment token_message
+#+BEGIN_SRC python
+token_message = """
+    Use a token for authentication.
+    This enables session-based authentication.
+    A random token will be generated if --token-password is not set.
+
+    If --no-token is set, session-based authentication will not be used.
+    """
+
+#+END_SRC
+** Assignment token_password_message
+#+BEGIN_SRC python
+token_password_message = """
+    Use a specific token for authentication.
+    This enables session-based authentication.
+    A random token will be generated if not set.
+    """
+
+#+END_SRC
+** @click.group(help=main_help_msg) click.version_option(version=__version__, message="%(version)s") click.option(     "-l",     "--log-level",     default="WARN",     type=click.Choice(         ["DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"], case_sensitive=False     ),     show_default=True,     help="Choose logging level.", ) click.option(     "-q",     "--quiet",     is_flag=True,     default=False,     show_default=True,     help="Suppress standard out.", ) click.option(     "-y",     "--yes",     is_flag=True,     default=False,     show_default=True,     help="Automatic yes to prompts, running non-interactively.", ) click.option(     "-d",     "--development-mode",     is_flag=True,     default=False,     show_default=True,     help="Run in development mode; enables debug logs and server autoreload.", ): Function main
+#+BEGIN_SRC python
+@click.group(help=main_help_msg)
+@click.version_option(version=__version__, message="%(version)s")
+@click.option(
+    "-l",
+    "--log-level",
+    default="WARN",
+    type=click.Choice(
+        ["DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"], case_sensitive=False
+    ),
+    show_default=True,
+    help="Choose logging level.",
+)
+@click.option(
+    "-q",
+    "--quiet",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Suppress standard out.",
+)
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Automatic yes to prompts, running non-interactively.",
+)
+@click.option(
+    "-d",
+    "--development-mode",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Run in development mode; enables debug logs and server autoreload.",
+)
+def main(
+    log_level: str, quiet: bool, yes: bool, development_mode: bool
+) -> None:
+    log_level = "DEBUG" if development_mode else log_level
+    _loggers.set_level(log_level)
+
+    GLOBAL_SETTINGS.DEVELOPMENT_MODE = development_mode
+    GLOBAL_SETTINGS.QUIET = quiet
+    GLOBAL_SETTINGS.YES = yes
+    GLOBAL_SETTINGS.LOG_LEVEL = _loggers.log_level_string_to_int(log_level)
+
+#+END_SRC
+** Assignment edit_help_msg
+#+BEGIN_SRC python
+edit_help_msg = "\n".join(
+    [
+        "\b",
+        "Create or edit notebooks.",
+        _key_value_bullets(
+            [
+                (
+                    "marimo edit",
+                    "Start the marimo notebook server",
+                ),
+                ("marimo edit notebook.py", "Create or edit notebook.py"),
+            ]
+        ),
+    ]
+)
+
+#+END_SRC
+** @main.command(help=edit_help_msg) click.option(     "-p",     "--port",     default=None,     show_default=True,     type=int,     help="Port to attach to.", ) click.option(     "--host",     default="127.0.0.1",     show_default=True,     type=str,     help="Host to attach to.", ) click.option(     "--proxy",     default=None,     type=str,     help="Address of reverse proxy.", ) click.option(     "--headless",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="Don't launch a browser.", ) click.option(     "--token/--no-token",     default=True,     show_default=True,     type=bool,     help=token_message, ) click.option(     "--token-password",     default=None,     show_default=True,     type=str,     help=token_password_message, ) click.option(     "--base-url",     default="",     show_default=True,     type=str,     help="Base URL for the server. Should start with a /.",     callback=validators.base_url, ) click.option(     "--allow-origins",     default=None,     multiple=True,     help="Allowed origins for CORS. Can be repeated. Use * for all origins.", ) click.option(     "--skip-update-check",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="Don't check if a new version of marimo is available for download.", ) click.option(     "--sandbox",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="""     Run the command in an isolated virtual environment using     'uv run --isolated'. Requires 'uv'.     """, ) click.option("--profile-dir", default=None, type=str, hidden=True) click.argument("name", required=False) click.argument("args", nargs=-1, type=click.UNPROCESSED): Function edit
+#+BEGIN_SRC python
+@main.command(help=edit_help_msg)
+@click.option(
+    "-p",
+    "--port",
+    default=None,
+    show_default=True,
+    type=int,
+    help="Port to attach to.",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    type=str,
+    help="Host to attach to.",
+)
+@click.option(
+    "--proxy",
+    default=None,
+    type=str,
+    help="Address of reverse proxy.",
+)
+@click.option(
+    "--headless",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="Don't launch a browser.",
+)
+@click.option(
+    "--token/--no-token",
+    default=True,
+    show_default=True,
+    type=bool,
+    help=token_message,
+)
+@click.option(
+    "--token-password",
+    default=None,
+    show_default=True,
+    type=str,
+    help=token_password_message,
+)
+@click.option(
+    "--base-url",
+    default="",
+    show_default=True,
+    type=str,
+    help="Base URL for the server. Should start with a /.",
+    callback=validators.base_url,
+)
+@click.option(
+    "--allow-origins",
+    default=None,
+    multiple=True,
+    help="Allowed origins for CORS. Can be repeated. Use * for all origins.",
+)
+@click.option(
+    "--skip-update-check",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="Don't check if a new version of marimo is available for download.",
+)
+@click.option(
+    "--sandbox",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="""
+    Run the command in an isolated virtual environment using
+    'uv run --isolated'. Requires 'uv'.
+    """,
+)
+@click.option("--profile-dir", default=None, type=str, hidden=True)
+@click.argument("name", required=False)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def edit(
+    port: Optional[int],
+    host: str,
+    proxy: Optional[str],
+    headless: bool,
+    token: bool,
+    token_password: Optional[str],
+    base_url: str,
+    allow_origins: Optional[tuple[str, ...]],
+    skip_update_check: bool,
+    sandbox: bool,
+    profile_dir: Optional[str],
+    name: Optional[str],
+    args: tuple[str, ...],
+) -> None:
+    from marimo._cli.sandbox import prompt_run_in_sandbox
+
+    # If file is a url, we prompt to run in docker
+    # We only do this for remote files,
+    # but later we can make this a CLI flag
+    if name is not None and prompt_run_in_docker_container(name):
+        from marimo._cli.run_docker import run_in_docker
+
+        run_in_docker(
+            name,
+            port=port,
+            debug=GLOBAL_SETTINGS.DEVELOPMENT_MODE,
+        )
+        return
+
+    if sandbox or prompt_run_in_sandbox(name):
+        from marimo._cli.sandbox import run_in_sandbox
+
+        run_in_sandbox(sys.argv[1:], name)
+        return
+
+    GLOBAL_SETTINGS.PROFILE_DIR = profile_dir
+    if not skip_update_check and os.getenv("MARIMO_SKIP_UPDATE_CHECK") != "1":
+        GLOBAL_SETTINGS.CHECK_STATUS_UPDATE = True
+        # Check for version updates
+        check_for_updates(print_latest_version)
+
+    if name is not None:
+        # Validate name, or download from URL
+        # The second return value is an optional temporary directory. It is
+        # unused, but must be kept around because its lifetime on disk is bound
+        # to the life of the Python object
+        name, _ = validate_name(
+            name, allow_new_file=True, allow_directory=True
+        )
+        is_dir = os.path.isdir(name)
+        if os.path.exists(name) and not is_dir:
+            # module correctness check - don't start the server
+            # if we can't import the module
+            codegen.get_app(name)
+        elif not is_dir:
+            # write empty file
+            try:
+                with open(name, "w"):
+                    pass
+            except OSError as e:
+                if isinstance(e, FileNotFoundError):
+                    # This means that the parent directory does not exist
+                    parent_dir = os.path.dirname(name)
+                    raise click.ClickException(
+                        f"Parent directory does not exist: {parent_dir}"
+                    ) from e
+                raise
+    else:
+        name = os.getcwd()
+
+    start(
+        file_router=AppFileRouter.infer(name),
+        development_mode=GLOBAL_SETTINGS.DEVELOPMENT_MODE,
+        quiet=GLOBAL_SETTINGS.QUIET,
+        host=host,
+        port=port,
+        proxy=proxy,
+        headless=headless,
+        mode=SessionMode.EDIT,
+        include_code=True,
+        watch=False,
+        cli_args=parse_args(args),
+        auth_token=_resolve_token(token, token_password),
+        base_url=base_url,
+        allow_origins=allow_origins,
+        redirect_console_to_browser=True,
+    )
+
+#+END_SRC
+** @main.command(help="Create a new notebook.") click.option(     "-p",     "--port",     default=None,     show_default=True,     type=int,     help="Port to attach to.", ) click.option(     "--host",     default="127.0.0.1",     show_default=True,     type=str,     help="Host to attach to.", ) click.option(     "--proxy",     default=None,     type=str,     help="Address of reverse proxy.", ) click.option(     "--headless",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="Don't launch a browser.", ) click.option(     "--token/--no-token",     default=True,     show_default=True,     type=bool,     help=token_message, ) click.option(     "--token-password",     default=None,     show_default=True,     type=str,     help=token_password_message, ) click.option(     "--base-url",     default="",     show_default=True,     type=str,     help="Base URL for the server. Should start with a /.",     callback=validators.base_url, ) click.option(     "--sandbox",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="""     Run the command in an isolated virtual environment using     'uv run --isolated'. Requires `uv`.     """, ): Function new
+#+BEGIN_SRC python
+@main.command(help="Create a new notebook.")
+@click.option(
+    "-p",
+    "--port",
+    default=None,
+    show_default=True,
+    type=int,
+    help="Port to attach to.",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    type=str,
+    help="Host to attach to.",
+)
+@click.option(
+    "--proxy",
+    default=None,
+    type=str,
+    help="Address of reverse proxy.",
+)
+@click.option(
+    "--headless",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="Don't launch a browser.",
+)
+@click.option(
+    "--token/--no-token",
+    default=True,
+    show_default=True,
+    type=bool,
+    help=token_message,
+)
+@click.option(
+    "--token-password",
+    default=None,
+    show_default=True,
+    type=str,
+    help=token_password_message,
+)
+@click.option(
+    "--base-url",
+    default="",
+    show_default=True,
+    type=str,
+    help="Base URL for the server. Should start with a /.",
+    callback=validators.base_url,
+)
+@click.option(
+    "--sandbox",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="""
+    Run the command in an isolated virtual environment using
+    'uv run --isolated'. Requires `uv`.
+    """,
+)
+def new(
+    port: Optional[int],
+    host: str,
+    proxy: Optional[str],
+    headless: bool,
+    token: bool,
+    token_password: Optional[str],
+    base_url: str,
+    sandbox: bool,
+) -> None:
+    if sandbox:
+        from marimo._cli.sandbox import run_in_sandbox
+
+        run_in_sandbox(sys.argv[1:], None)
+        return
+
+    start(
+        file_router=AppFileRouter.new_file(),
+        development_mode=GLOBAL_SETTINGS.DEVELOPMENT_MODE,
+        quiet=GLOBAL_SETTINGS.QUIET,
+        host=host,
+        port=port,
+        proxy=proxy,
+        headless=headless,
+        mode=SessionMode.EDIT,
+        include_code=True,
+        watch=False,
+        cli_args={},
+        auth_token=_resolve_token(token, token_password),
+        base_url=base_url,
+        redirect_console_to_browser=True,
+    )
+
+#+END_SRC
+** @main.command(     help="""Run a notebook as an app in read-only mode.  If NAME is a url, the notebook will be downloaded to a temporary file.  Example:    \b   * marimo run notebook.py """ ) click.option(     "-p",     "--port",     default=None,     show_default=True,     type=int,     help="Port to attach to.", ) click.option(     "--host",     default="127.0.0.1",     show_default=True,     type=str,     help="Host to attach to.", ) click.option(     "--proxy",     default=None,     type=str,     help="Address of reverse proxy.", ) click.option(     "--headless",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="Don't launch a browser.", ) click.option(     "--token/--no-token",     default=False,     show_default=True,     type=bool,     help=token_message, ) click.option(     "--token-password",     default=None,     show_default=True,     type=str,     help=token_password_message, ) click.option(     "--include-code",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="Include notebook code in the app.", ) click.option(     "--watch",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="""     Watch the file for changes and reload the app.     If watchdog is installed, it will be used to watch the file.     Otherwise, file watcher will poll the file every 1s.     """, ) click.option(     "--base-url",     default="",     show_default=True,     type=str,     help="Base URL for the server. Should start with a /.",     callback=validators.base_url, ) click.option(     "--allow-origins",     default=None,     multiple=True,     help="Allowed origins for CORS. Can be repeated.", ) click.option(     "--redirect-console-to-browser",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="Redirect console logs to the browser console.", ) click.option(     "--sandbox",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="""     Run the command in an isolated virtual environment using     'uv run --isolated'. Requires `uv`.     """, ) click.argument("name", required=True) click.argument("args", nargs=-1, type=click.UNPROCESSED): Function run
+#+BEGIN_SRC python
+@main.command(
+    help="""Run a notebook as an app in read-only mode.
+
+If NAME is a url, the notebook will be downloaded to a temporary file.
+
+Example:
+
+  \b
+  * marimo run notebook.py
+"""
+)
+@click.option(
+    "-p",
+    "--port",
+    default=None,
+    show_default=True,
+    type=int,
+    help="Port to attach to.",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    type=str,
+    help="Host to attach to.",
+)
+@click.option(
+    "--proxy",
+    default=None,
+    type=str,
+    help="Address of reverse proxy.",
+)
+@click.option(
+    "--headless",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="Don't launch a browser.",
+)
+@click.option(
+    "--token/--no-token",
+    default=False,
+    show_default=True,
+    type=bool,
+    help=token_message,
+)
+@click.option(
+    "--token-password",
+    default=None,
+    show_default=True,
+    type=str,
+    help=token_password_message,
+)
+@click.option(
+    "--include-code",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="Include notebook code in the app.",
+)
+@click.option(
+    "--watch",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="""
+    Watch the file for changes and reload the app.
+    If watchdog is installed, it will be used to watch the file.
+    Otherwise, file watcher will poll the file every 1s.
+    """,
+)
+@click.option(
+    "--base-url",
+    default="",
+    show_default=True,
+    type=str,
+    help="Base URL for the server. Should start with a /.",
+    callback=validators.base_url,
+)
+@click.option(
+    "--allow-origins",
+    default=None,
+    multiple=True,
+    help="Allowed origins for CORS. Can be repeated.",
+)
+@click.option(
+    "--redirect-console-to-browser",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="Redirect console logs to the browser console.",
+)
+@click.option(
+    "--sandbox",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="""
+    Run the command in an isolated virtual environment using
+    'uv run --isolated'. Requires `uv`.
+    """,
+)
+@click.argument("name", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def run(
+    port: Optional[int],
+    host: str,
+    proxy: Optional[str],
+    headless: bool,
+    token: bool,
+    token_password: Optional[str],
+    include_code: bool,
+    watch: bool,
+    base_url: str,
+    allow_origins: tuple[str, ...],
+    redirect_console_to_browser: bool,
+    sandbox: bool,
+    name: str,
+    args: tuple[str, ...],
+) -> None:
+    from marimo._cli.sandbox import prompt_run_in_sandbox
+
+    # If file is a url, we prompt to run in docker
+    # We only do this for remote files,
+    # but later we can make this a CLI flag
+    if prompt_run_in_docker_container(name):
+        from marimo._cli.run_docker import run_in_docker
+
+        run_in_docker(
+            name,
+            port=port,
+            debug=GLOBAL_SETTINGS.DEVELOPMENT_MODE,
+        )
+        return
+
+    if sandbox or prompt_run_in_sandbox(name):
+        from marimo._cli.sandbox import run_in_sandbox
+
+        run_in_sandbox(sys.argv[1:], name)
+        return
+
+    # Validate name, or download from URL
+    # The second return value is an optional temporary directory. It is unused,
+    # but must be kept around because its lifetime on disk is bound to the life
+    # of the Python object
+    name, _ = validate_name(name, allow_new_file=False, allow_directory=False)
+
+    # correctness check - don't start the server if we can't import the module
+    codegen.get_app(name)
+
+    start(
+        file_router=AppFileRouter.from_filename(MarimoPath(name)),
+        development_mode=GLOBAL_SETTINGS.DEVELOPMENT_MODE,
+        quiet=GLOBAL_SETTINGS.QUIET,
+        host=host,
+        port=port,
+        proxy=proxy,
+        headless=headless,
+        mode=SessionMode.RUN,
+        include_code=include_code,
+        watch=watch,
+        base_url=base_url,
+        allow_origins=allow_origins,
+        cli_args=parse_args(args),
+        auth_token=_resolve_token(token, token_password),
+        redirect_console_to_browser=redirect_console_to_browser,
+    )
+
+#+END_SRC
+** @main.command(help="Recover a marimo notebook from JSON.") click.argument("name", required=True): Function recover
+#+BEGIN_SRC python
+@main.command(help="Recover a marimo notebook from JSON.")
+@click.argument("name", required=True)
+def recover(name: str) -> None:
+    path = pathlib.Path(name)
+    if not os.path.exists(name):
+        raise click.UsageError("Invalid NAME - %s does not exist" % name)
+
+    if not path.is_file():
+        raise click.UsageError("Invalid NAME - %s is not a file" % name)
+
+    click.echo(codegen.recover(name))
+
+#+END_SRC
+** @main.command(     help="""Open a tutorial.  marimo is a powerful library for making reactive notebooks and apps. To get the most out of marimo, get started with a few tutorials, starting with the intro:      \b     marimo tutorial intro  Recommended sequence:      \b """     + "\n".join(f"    - {name}" for name in tutorial_order) ) click.option(     "-p",     "--port",     default=None,     show_default=True,     type=int,     help="Port to attach to.", ) click.option(     "--host",     default="127.0.0.1",     show_default=True,     type=str,     help="Host to attach to.", ) click.option(     "--proxy",     default=None,     type=str,     help="Address of reverse proxy.", ) click.option(     "--headless",     is_flag=True,     default=False,     show_default=True,     type=bool,     help="Don't launch a browser.", ) click.option(     "--token/--no-token",     default=True,     show_default=True,     type=bool,     help=token_message, ) click.option(     "--token-password",     default=None,     show_default=True,     type=str,     help=token_password_message, ) click.argument(     "name",     required=True,     type=click.Choice(tutorial_order), ): Function tutorial
+#+BEGIN_SRC python
+@main.command(
+    help="""Open a tutorial.
+
+marimo is a powerful library for making reactive notebooks
+and apps. To get the most out of marimo, get started with a few
+tutorials, starting with the intro:
+
+    \b
+    marimo tutorial intro
+
+Recommended sequence:
+
+    \b
+"""
+    + "\n".join(f"    - {name}" for name in tutorial_order)
+)
+@click.option(
+    "-p",
+    "--port",
+    default=None,
+    show_default=True,
+    type=int,
+    help="Port to attach to.",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    type=str,
+    help="Host to attach to.",
+)
+@click.option(
+    "--proxy",
+    default=None,
+    type=str,
+    help="Address of reverse proxy.",
+)
+@click.option(
+    "--headless",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    type=bool,
+    help="Don't launch a browser.",
+)
+@click.option(
+    "--token/--no-token",
+    default=True,
+    show_default=True,
+    type=bool,
+    help=token_message,
+)
+@click.option(
+    "--token-password",
+    default=None,
+    show_default=True,
+    type=str,
+    help=token_password_message,
+)
+@click.argument(
+    "name",
+    required=True,
+    type=click.Choice(tutorial_order),
+)
+def tutorial(
+    port: Optional[int],
+    host: str,
+    proxy: Optional[str],
+    headless: bool,
+    token: bool,
+    token_password: Optional[str],
+    name: Tutorial,
+) -> None:
+    temp_dir = tempfile.TemporaryDirectory()
+    path = create_temp_tutorial_file(name, temp_dir)
+
+    start(
+        file_router=AppFileRouter.from_filename(path),
+        development_mode=GLOBAL_SETTINGS.DEVELOPMENT_MODE,
+        quiet=GLOBAL_SETTINGS.QUIET,
+        host=host,
+        port=port,
+        proxy=proxy,
+        mode=SessionMode.EDIT,
+        include_code=True,
+        headless=headless,
+        watch=False,
+        cli_args={},
+        auth_token=_resolve_token(token, token_password),
+        redirect_console_to_browser=False,
+    )
+
+#+END_SRC
+** @main.command(): Function env
+#+BEGIN_SRC python
+@main.command()
+def env() -> None:
+    """Print out environment information for debugging purposes.
+
+    Example usage:
+
+        marimo env
+    """
+    click.echo(json.dumps(get_system_info(), indent=2))
+
+#+END_SRC
+** Call main.command()(convert)
+#+BEGIN_SRC python
+main.command()(convert)
+
+#+END_SRC
+** Call main.add_command(export)
+#+BEGIN_SRC python
+main.add_command(export)
+
+#+END_SRC
+** Call main.add_command(config)
+#+BEGIN_SRC python
+main.add_command(config)
+
+#+END_SRC
+** Call main.add_command(development)
+#+BEGIN_SRC python
+main.add_command(development)
+
+#+END_SRC
+* cli_validators
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.cli_validators
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/cli_validators.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from typing import Any, Optional
+
+import click
+
+#+END_SRC
+** Function base_url
+#+BEGIN_SRC python
+def base_url(ctx: Any, param: Any, value: Optional[str]) -> str:
+    del ctx
+    del param
+    if value is None or value == "":
+        return ""
+
+    if value == "/":
+        raise click.BadParameter(
+            "Must not be /. This is equivalent to not setting the base URL."
+        )
+    if not value.startswith("/"):
+        raise click.BadParameter("Must start with /")
+    if value.endswith("/"):
+        raise click.BadParameter("Must not end with /")
+    return value
+
+#+END_SRC
+* envinfo
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.envinfo
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/envinfo.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import platform
+import sys
+from typing import Any, Union, cast
+
+from marimo import __version__
+from marimo._utils.health import (
+    get_chrome_version,
+    get_node_version,
+    get_optional_modules_list,
+    get_required_modules_list,
+)
+
+#+END_SRC
+** Function is_win11
+#+BEGIN_SRC python
+def is_win11() -> bool:
+    """
+    Check if the operating system is Windows 11.
+
+    Returns:
+        bool: True if the OS is Windows 11, False otherwise.
+    """
+    if hasattr(sys, "getwindowsversion"):
+        return cast(Any, sys).getwindowsversion().build >= 22000  # type: ignore[no-any-return]
+    return False
+
+#+END_SRC
+** Function get_system_info
+#+BEGIN_SRC python
+def get_system_info() -> dict[str, Union[str, dict[str, str]]]:
+    os_version = platform.release()
+    if platform.system() == "Windows" and is_win11():
+        os_version = "11"
+
+    info = {
+        "marimo": __version__,
+        "OS": platform.system(),
+        "OS Version": os_version,
+        # e.g., x86 or arm
+        "Processor": platform.processor(),
+        "Python Version": platform.python_version(),
+    }
+
+    binaries = {
+        # Check chrome specifically if invoked from cli, this value could be
+        # back-filled in frontend
+        "Browser": get_chrome_version() or "--",
+        "Node": get_node_version() or "--",
+    }
+
+    requirements = get_required_modules_list()
+    optional_deps = get_optional_modules_list()
+
+    return {
+        **info,
+        "Binaries": binaries,
+        "Dependencies": requirements,
+        "Optional Dependencies": optional_deps,
+    }
+
+#+END_SRC
+* file_path
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.file_path
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/file_path.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import abc
+import json
+import logging
+import os
+import pathlib
+import urllib.parse
+import urllib.request
+from tempfile import TemporaryDirectory
+from typing import Optional, Tuple
+from urllib.error import HTTPError
+
+from marimo._cli.print import green
+from marimo._utils.marimo_path import MarimoPath
+from marimo._utils.url import is_url
+
+#+END_SRC
+** Function is_github_src
+#+BEGIN_SRC python
+def is_github_src(url: str, ext: str) -> bool:
+    if not is_url(url):
+        return False
+
+    hostname = urllib.parse.urlparse(url).hostname
+    if hostname != "github.com" and hostname != "raw.githubusercontent.com":
+        return False
+    path: str = urllib.parse.urlparse(url).path
+    if not path.endswith(ext):
+        return False
+    return True
+
+#+END_SRC
+** Function get_github_src_url
+#+BEGIN_SRC python
+def get_github_src_url(url: str) -> str:
+    # Change hostname to raw.githubusercontent.com
+    path = urllib.parse.urlparse(url).path
+    path = path.replace("/blob/", "/", 1)
+    return f"https://raw.githubusercontent.com{path}"
+
+#+END_SRC
+** Class FileReader
+#+BEGIN_SRC python
+class FileReader(abc.ABC):
+    @abc.abstractmethod
+    def can_read(self, name: str) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def read(self, name: str) -> Tuple[str, str]:
+        """Read the file and return its content and filename."""
+        pass
+
+#+END_SRC
+** Class LocalFileReader
+#+BEGIN_SRC python
+class LocalFileReader(FileReader):
+    def can_read(self, name: str) -> bool:
+        return not is_url(name)
+
+    def read(self, name: str) -> Tuple[str, str]:
+        # Is directory
+        if os.path.isdir(name):
+            return "", os.path.basename(name)
+        with open(name, "r") as f:
+            content = f.read()
+        return content, os.path.basename(name)
+
+#+END_SRC
+** Class GitHubIssueReader
+#+BEGIN_SRC python
+class GitHubIssueReader(FileReader):
+    def can_read(self, name: str) -> bool:
+        return is_url(name) and name.startswith(
+            "https://github.com/marimo-team/marimo/issues/"
+        )
+
+    def read(self, name: str) -> Tuple[str, str]:
+        issue_number = name.split("/")[-1]
+        api_url = f"https://api.github.com/repos/marimo-team/marimo/issues/{issue_number}"
+        issue_response = urllib.request.urlopen(api_url).read().decode("utf-8")
+        issue_json = json.loads(issue_response)
+        body = issue_json["body"]
+        code = self._find_python_code_in_github_issue(body)
+        return code, f"issue_{issue_number}.py"
+
+    @staticmethod
+    def _find_python_code_in_github_issue(body: str) -> str:
+        return body.split("```python")[1].rsplit("```", 1)[0]
+
+#+END_SRC
+** Class StaticNotebookReader
+#+BEGIN_SRC python
+class StaticNotebookReader(FileReader):
+    CODE_PREFIX = '<marimo-code hidden="">'
+    CODE_SUFFIX = "</marimo-code>"
+    FILENAME_PREFIX = '<marimo-filename hidden="">'
+    FILENAME_SUFFIX = "</marimo-filename>"
+
+    def can_read(self, name: str) -> bool:
+        return self._is_static_marimo_notebook_url(name)[0]
+
+    def read(self, name: str) -> Tuple[str, str]:
+        _, file_contents = self._is_static_marimo_notebook_url(name)
+        code = self._extract_code_from_static_notebook(file_contents)
+        filename = self._extract_filename_from_static_notebook(file_contents)
+        return code, filename
+
+    @staticmethod
+    def _is_static_marimo_notebook_url(url: str) -> tuple[bool, str]:
+        def download(url: str) -> tuple[bool, str]:
+            logging.info("Downloading %s", url)
+            request = urllib.request.Request(
+                url,
+                # User agent to avoid 403 Forbidden some bot protection
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            file_contents = (
+                urllib.request.urlopen(request).read().decode("utf-8")
+            )
+            return StaticNotebookReader.CODE_PREFIX in file_contents, str(
+                file_contents
+            )
+
+        # Not a URL
+        if not is_url(url):
+            return False, ""
+
+        # Ends with .html, try to download it
+        if url.endswith(".html"):
+            return download(url)
+
+        # Starts with https://static.marimo.app/, append /download
+        if url.startswith("https://static.marimo.app/"):
+            return download(os.path.join(url, "download"))
+
+        # Otherwise, not a static marimo notebook
+        return False, ""
+
+    @staticmethod
+    def _extract_code_from_static_notebook(file_contents: str) -> str:
+        # normalize hidden attribute
+        file_contents = file_contents.replace("hidden=''", 'hidden=""')
+        return file_contents.split(StaticNotebookReader.CODE_PREFIX)[1].split(
+            StaticNotebookReader.CODE_SUFFIX
+        )[0]
+
+    @staticmethod
+    def _extract_filename_from_static_notebook(file_contents: str) -> str:
+        # normalize hidden attribute
+        file_contents = file_contents.replace("hidden=''", 'hidden=""')
+        return file_contents.split(StaticNotebookReader.FILENAME_PREFIX)[
+            1
+        ].split(StaticNotebookReader.FILENAME_SUFFIX)[0]
+
+#+END_SRC
+** Class GitHubSourceReader
+#+BEGIN_SRC python
+class GitHubSourceReader(FileReader):
+    def can_read(self, name: str) -> bool:
+        return is_github_src(name, ext=".py") or is_github_src(name, ext=".md")
+
+    def read(self, name: str) -> Tuple[str, str]:
+        url = get_github_src_url(name)
+        content = urllib.request.urlopen(url).read().decode("utf-8")
+        return content, os.path.basename(url)
+
+#+END_SRC
+** Class GenericURLReader
+#+BEGIN_SRC python
+class GenericURLReader(FileReader):
+    def can_read(self, name: str) -> bool:
+        return is_url(name)
+
+    def read(self, name: str) -> Tuple[str, str]:
+        content = urllib.request.urlopen(name).read().decode("utf-8")
+        # Remove query parameters from the URL
+        url_without_query = name.split("?")[0]
+        return content, os.path.basename(url_without_query)
+
+#+END_SRC
+** Class FileContentReader
+#+BEGIN_SRC python
+class FileContentReader:
+    def __init__(self) -> None:
+        self.readers = [
+            LocalFileReader(),
+            GitHubIssueReader(),
+            StaticNotebookReader(),
+            GitHubSourceReader(),
+            GenericURLReader(),
+        ]
+
+    def read_file(self, name: str) -> Tuple[str, str]:
+        """
+        Read the file and return its content and filename
+
+        Args:
+            name (str): File path or URL
+
+        Raises:
+            ValueError: If the file cannot be read
+
+        Returns:
+            Tuple[str, str]: File content and filename
+        """
+        for reader in self.readers:
+            if reader.can_read(name):
+                return reader.read(name)
+        raise ValueError(f"Unable to read file contents of {name}")
+
+#+END_SRC
+** Class FileHandler
+#+BEGIN_SRC python
+class FileHandler(abc.ABC):
+    @abc.abstractmethod
+    def can_handle(self, name: str) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def handle(
+        self, name: str, temp_dir: TemporaryDirectory[str]
+    ) -> Tuple[str, Optional[TemporaryDirectory[str]]]:
+        pass
+
+#+END_SRC
+** Class LocalFileHandler
+#+BEGIN_SRC python
+class LocalFileHandler(FileHandler):
+    def __init__(self, allow_new_file: bool, allow_directory: bool):
+        self.allow_new_file = allow_new_file
+        self.allow_directory = allow_directory
+
+    def can_handle(self, name: str) -> bool:
+        return not is_url(name)
+
+    def handle(
+        self, name: str, temp_dir: TemporaryDirectory[str]
+    ) -> Tuple[str, Optional[TemporaryDirectory[str]]]:
+        del temp_dir
+        import click
+
+        path = pathlib.Path(name)
+
+        if self.allow_directory and os.path.isdir(name):
+            return name, None
+
+        if path.suffix == ".ipynb":
+            prefix = str(path)[: -len(".ipynb")]
+            raise click.ClickException(
+                f"Invalid NAME - {name} is not a Python file.\n\n"
+                f"  {green('Tip:')} Convert {name} to a marimo notebook with"
+                "\n\n"
+                f"    marimo convert {name} > {prefix}.py\n\n"
+                f"  then open with marimo edit {prefix}.py"
+            )
+
+        if not MarimoPath.is_valid_path(path):
+            raise click.ClickException(
+                f"Invalid NAME - {name} is not a Python or Markdown file"
+            )
+
+        if not self.allow_new_file:
+            if not os.path.exists(name):
+                raise click.ClickException(
+                    f"Invalid NAME - {name} does not exist"
+                )
+            if not path.is_file():
+                raise click.ClickException(
+                    f"Invalid NAME - {name} is not a file"
+                )
+
+        return name, None
+
+#+END_SRC
+** Class RemoteFileHandler
+#+BEGIN_SRC python
+class RemoteFileHandler(FileHandler):
+    def __init__(self) -> None:
+        self.reader = FileContentReader()
+
+    def can_handle(self, name: str) -> bool:
+        return is_url(name)
+
+    def handle(
+        self, name: str, temp_dir: TemporaryDirectory[str]
+    ) -> Tuple[str, Optional[TemporaryDirectory[str]]]:
+        try:
+            content, filename = self.reader.read_file(name)
+        except HTTPError as e:
+            import click
+
+            raise click.ClickException(f"Failed to read URL: {e}")  # noqa: B904
+        path_to_app = self._create_tmp_file_from_content(
+            content, filename, temp_dir
+        )
+        return path_to_app, temp_dir
+
+    @staticmethod
+    def _create_tmp_file_from_content(
+        content: str, name: str, temp_dir: TemporaryDirectory[str]
+    ) -> str:
+        logging.info("Creating temporary file")
+        path_to_app = os.path.join(temp_dir.name, name)
+        with open(path_to_app, "w") as f:
+            f.write(content)
+        logging.info("App saved to %s", path_to_app)
+        return path_to_app
+
+#+END_SRC
+** Function validate_name
+#+BEGIN_SRC python
+def validate_name(
+    name: str, allow_new_file: bool, allow_directory: bool
+) -> Tuple[str, Optional[TemporaryDirectory[str]]]:
+    """
+    Validate the file name and return the path to the file.
+
+    Args:
+        name (str): Local file path, URL, or directory path
+        allow_new_file (bool): Whether to allow creating a new file
+        allow_directory (bool): Whether to allow a directory
+
+    Raises:
+        ValueError: If the file name is invalid
+
+    Returns:
+        Path to the file and temporary directory
+    """
+    handlers = [
+        LocalFileHandler(allow_new_file, allow_directory),
+        RemoteFileHandler(),
+    ]
+
+    temp_dir = TemporaryDirectory()
+
+    for handler in handlers:
+        if handler.can_handle(name):
+            return handler.handle(name, temp_dir)
+
+    raise ValueError(f"Unable to handle file {name}")
+
+#+END_SRC
+* parse_args
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.parse_args
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/parse_args.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import sys
+from typing import TYPE_CHECKING, Any
+
+from marimo._runtime.requests import SerializedCLIArgs
+
+#+END_SRC
+** Function parse_args
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+
+def parse_args(
+    args: Iterable[str],
+) -> SerializedCLIArgs:
+    """
+    Parse command line arguments into a dictionary.
+
+    This does not support lists as values.
+    """
+
+    args_dict: SerializedCLIArgs = {}
+
+    # Combine any arguments that are split by spaces
+    new_args: list[str] = []
+    for arg in args:
+        if arg.startswith(("-", "--")):
+            new_args.append(arg)
+        elif new_args:
+            new_args[-1] += f" {arg}"
+
+    for arg in new_args:
+        if arg.startswith(("-", "--")):
+            # Strip leading dashes
+            arg = arg.lstrip("-")
+            key: str
+            value: Any
+
+            if "=" in arg:
+                key, value = arg.split("=", 1)
+            elif " " in arg:
+                key, value = arg.split(" ", 1)
+                key = key.strip()
+                value = value.strip()
+            else:
+                key = arg
+                value = ""
+
+            # Try numeric conversion
+            try:
+                value = int(value)
+            except ValueError:
+                try:
+                    value = float(value)
+                except ValueError:
+                    pass
+
+            # Try boolean conversion
+            if value == "True":
+                value = True
+            elif value == "true":
+                value = True
+            elif value == "false":
+                value = False
+            elif value == "False":
+                value = False
+
+            # Create a list for duplicate arguments
+            if key in args_dict:
+                current = args_dict[key]
+                if isinstance(current, list):
+                    current.append(value)
+                else:
+                    args_dict[key] = [current, value]
+            else:
+                args_dict[key] = value
+
+    return args_dict
+
+#+END_SRC
+** Function args_from_argv
+#+BEGIN_SRC python
+def args_from_argv() -> SerializedCLIArgs:
+    return parse_args(sys.argv[1:])
+
+#+END_SRC
+* print
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.print
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/print.py
+:END:
+** Import
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+from __future__ import annotations
+
+from typing import Any
+
+from marimo._config.settings import GLOBAL_SETTINGS
+
+#+END_SRC
+** Function bold
+#+BEGIN_SRC python
+# Print helpers
+
+
+def bold(text: str) -> str:
+    return "\033[1m" + text + "\033[0m"
+
+#+END_SRC
+** Function green
+#+BEGIN_SRC python
+def green(text: str, bold: bool = False) -> str:
+    prefix = "\033[32m" if not bold else "\033[1;32m"
+    return prefix + text + "\033[0m"
+
+#+END_SRC
+** Function orange
+#+BEGIN_SRC python
+def orange(text: str, bold: bool = False) -> str:
+    prefix = "\033[33m" if not bold else "\033[1;33m"
+    return prefix + text + "\033[0m"
+
+#+END_SRC
+** Function red
+#+BEGIN_SRC python
+def red(text: str, bold: bool = False) -> str:
+    prefix = "\033[31m" if not bold else "\033[1;31m"
+    return prefix + text + "\033[0m"
+
+#+END_SRC
+** Function muted
+#+BEGIN_SRC python
+def muted(text: str) -> str:
+    return "\033[90m" + text + "\033[0m"
+
+#+END_SRC
+** Function echo
+#+BEGIN_SRC python
+def echo(*args: Any, **kwargs: Any) -> None:
+    import click
+
+    if GLOBAL_SETTINGS.QUIET:
+        return
+
+    click.echo(*args, **kwargs)
+
+#+END_SRC
+* run_docker
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.run_docker
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/run_docker.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import subprocess
+import sys
+from typing import Optional
+
+import click
+from click import echo
+
+from marimo import _loggers
+from marimo._cli.print import green, muted, red
+from marimo._config.settings import GLOBAL_SETTINGS
+from marimo._utils.url import is_url
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Function prompt_run_in_docker_container
+#+BEGIN_SRC python
+def prompt_run_in_docker_container(name: str | None) -> bool:
+    if GLOBAL_SETTINGS.IN_SECURE_ENVIRONMENT:
+        return False
+    if GLOBAL_SETTINGS.MANAGE_SCRIPT_METADATA:
+        return False
+
+    # Only prompt for remote files
+    if name is None:
+        return False
+    if not is_url(name):
+        return False
+
+    if GLOBAL_SETTINGS.YES:
+        return True
+
+    # Check if not in an interactive terminal
+    # default to False
+    if not sys.stdin.isatty():
+        return False
+
+    return click.confirm(
+        "This notebook is hosted on a remote server.\n"
+        + green(
+            "Would you like to run it in a secure docker container?",
+            bold=True,
+        ),
+        default=True,
+    )
+
+#+END_SRC
+** Function _check_docker_installed
+#+BEGIN_SRC python
+def _check_docker_installed() -> bool:
+    try:
+        subprocess.run(
+            ["docker", "--version"], check=True, capture_output=True, text=True
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+    except FileNotFoundError:
+        return False
+
+#+END_SRC
+** Function _check_docker_running
+#+BEGIN_SRC python
+def _check_docker_running() -> bool:
+    try:
+        subprocess.run(
+            ["docker", "info"], check=True, capture_output=True, text=True
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+#+END_SRC
+** Function echo_red
+#+BEGIN_SRC python
+def echo_red(text: str) -> None:
+    echo(red(text))
+
+#+END_SRC
+** Function _check_port_in_use
+#+BEGIN_SRC python
+# Run a marimo file in a docker container
+# marimo edit https://github.com/some/file.py --docker
+def _check_port_in_use(port: int) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.ID}}\t{{.Ports}}", "--no-trunc"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        for line in result.stdout.splitlines():
+            container_id, ports = line.split("\t")
+            if f":{port}->" in ports:
+                return container_id
+    except subprocess.CalledProcessError:
+        pass
+    return None
+
+#+END_SRC
+** Function run_in_docker
+#+BEGIN_SRC python
+def run_in_docker(
+    file_path: str,
+    *,
+    port: Optional[int],
+    debug: bool = False,
+) -> None:
+    echo(f"Starting {green('containerized')} marimo notebook")
+
+    host = "0.0.0.0"
+    if port is None:
+        port = 8080
+
+    if not _check_docker_installed():
+        echo_red(
+            "Docker is not installed. Please install Docker and try again."
+        )
+        sys.exit(1)
+
+    if not _check_docker_running():
+        echo_red(
+            "Docker daemon is not running. Please start Docker and try again."
+        )
+        sys.exit(1)
+
+    # Check if the port is already in use
+    existing_container = _check_port_in_use(port)
+    if existing_container:
+        echo_red(
+            f"Port {port} is already in use by container {existing_container}"
+        )
+        echo("To remove the existing container, run:")
+        echo(muted(f"  docker stop {existing_container}"))
+        echo("Then try running this command again.")
+        sys.exit(1)
+
+    # Define the container image and command
+    image = "ghcr.io/astral-sh/uv:0.4.21-python3.12-bookworm"
+    container_command = [
+        "uvx",
+        "marimo",
+        "-d" if debug else "",
+        "edit",
+        "--sandbox",
+        "--no-token",
+        "-p",
+        f"{port}",
+        "--host",
+        host,
+        file_path,
+    ]
+    # Remove empty strings from command
+    container_command = [arg for arg in container_command if arg]
+
+    # Construct the docker run command
+    docker_command = [
+        "docker",
+        "run",
+        "--rm",
+        "-d",
+        "-p",
+        f"{port}:{port}",
+        "-e",
+        "MARIMO_MANAGE_SCRIPT_METADATA=true",
+        "-e",
+        "MARIMO_IN_SECURE_ENVIRONMENT=true",
+        "-w",
+        "/app",
+        image,
+    ] + container_command
+
+    # Run the container
+    echo(f"Running command: {muted(' '.join(docker_command))}")
+    container_id = None
+    try:
+        result = subprocess.run(
+            docker_command, check=True, capture_output=True, text=True
+        )
+        container_id = result.stdout.strip()
+        echo(f"Container ID: {muted(container_id)}")
+        echo(f"URL: {green(f'http://{host}:{port}')}")
+
+        # Stream logs
+        log_command = ["docker", "logs", "-f", container_id]
+        with subprocess.Popen(
+            log_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+        ) as process:
+            try:
+                for line in process.stdout or []:
+                    echo(line.strip())
+            except KeyboardInterrupt:
+                echo("Received keyboard interrupt.")
+    except subprocess.CalledProcessError as e:
+        echo_red(f"Failed to start Docker container: {e}")
+        sys.exit(1)
+    finally:
+        echo("Stopping and removing container...")
+        try:
+            if container_id is not None:
+                subprocess.run(
+                    ["docker", "stop", container_id],
+                    check=True,
+                    capture_output=True,
+                )
+            echo(muted("Container stopped and removed successfully"))
+        except subprocess.CalledProcessError:
+            echo_red("Failed to stop and remove container")
+
+#+END_SRC
+* sandbox
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.sandbox
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/sandbox.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import atexit
+import os
+import re
+import signal
+import subprocess
+import sys
+import tempfile
+from typing import Any, Dict, List, Optional, cast
+
+import click
+
+from marimo import __version__, _loggers
+from marimo._cli.file_path import FileContentReader
+from marimo._cli.print import bold, echo, green, muted
+from marimo._config.settings import GLOBAL_SETTINGS
+from marimo._dependencies.dependencies import DependencyManager
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Assignment REGEX
+#+BEGIN_SRC python
+REGEX = (
+    r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)$\s)+)^# ///$"
+)
+
+#+END_SRC
+** Function _get_dependencies
+#+BEGIN_SRC python
+def _get_dependencies(script: str) -> List[str] | None:
+    """Get dependencies from string representation of script."""
+    try:
+        pyproject = _read_pyproject(script) or {}
+        return _pyproject_toml_to_requirements_txt(pyproject)
+    except Exception as e:
+        LOGGER.warning(f"Failed to parse dependencies: {e}")
+        return None
+
+#+END_SRC
+** Function _pyproject_toml_to_requirements_txt
+#+BEGIN_SRC python
+def _pyproject_toml_to_requirements_txt(
+    pyproject: Dict[str, Any],
+) -> List[str]:
+    """
+    Convert a pyproject.toml file to a requirements.txt file.
+
+    If there is a `[tool.uv.sources]` section, we resolve the dependencies
+    to their corresponding source.
+
+    # dependencies = [
+    #     "python-gcode",
+    # ]
+    #
+    # [tool.uv.sources]
+    # python-gcode = { git = "https://github.com/fetlab/python_gcode", rev = "new" }
+    """  # noqa: E501
+    dependencies = cast(List[str], pyproject.get("dependencies", []))
+    if not dependencies:
+        return []
+
+    uv_sources = pyproject.get("tool", {}).get("uv", {}).get("sources", {})
+
+    for dependency, source in uv_sources.items():
+        # Find the index of the dependency. This may have a version
+        # attached, so we cannot do .index()
+        dep_index: int | None = None
+        for i, dep in enumerate(dependencies):
+            if (
+                dep == dependency
+                or dep.startswith(f"{dependency}==")
+                or dep.startswith(f"{dependency}<")
+                or dep.startswith(f"{dependency}>")
+                or dep.startswith(f"{dependency}~")
+            ):
+                dep_index = i
+                break
+
+        if dep_index is None:
+            continue
+
+        new_dependency = None
+
+        # Handle git dependencies
+        if "git" in source:
+            git_url = f"git+{source['git']}"
+            ref = (
+                source.get("rev") or source.get("branch") or source.get("tag")
+            )
+            new_dependency = (
+                f"{dependency} @ {git_url}@{ref}"
+                if ref
+                else f"{dependency} @ {git_url}"
+            )
+        # Handle local paths
+        elif "path" in source:
+            new_dependency = f"{dependency} @ {source['path']}"
+
+        # Handle URLs
+        elif "url" in source:
+            new_dependency = f"{dependency} @ {source['url']}"
+
+        if new_dependency:
+            if source.get("marker"):
+                new_dependency += f"; {source['marker']}"
+
+            dependencies[dep_index] = new_dependency
+
+    return dependencies
+
+#+END_SRC
+** Function get_dependencies_from_filename
+#+BEGIN_SRC python
+def get_dependencies_from_filename(name: str) -> List[str]:
+    try:
+        contents, _ = FileContentReader().read_file(name)
+        return _get_dependencies(contents) or []
+    except FileNotFoundError:
+        return []
+    except Exception:
+        LOGGER.warning(f"Failed to read dependencies from {name}")
+        return []
+
+#+END_SRC
+** Function _read_pyproject
+#+BEGIN_SRC python
+def _read_pyproject(script: str) -> Dict[str, Any] | None:
+    """
+    Read the pyproject.toml file from the script.
+
+    Adapted from https://peps.python.org/pep-0723/#reference-implementation
+    """
+    name = "script"
+    matches = list(
+        filter(lambda m: m.group("type") == name, re.finditer(REGEX, script))
+    )
+    if len(matches) > 1:
+        raise ValueError(f"Multiple {name} blocks found")
+    elif len(matches) == 1:
+        content = "".join(
+            line[2:] if line.startswith("# ") else line[1:]
+            for line in matches[0].group("content").splitlines(keepends=True)
+        )
+        import tomlkit
+
+        return tomlkit.parse(content)
+    else:
+        return None
+
+#+END_SRC
+** Function prompt_run_in_sandbox
+#+BEGIN_SRC python
+def prompt_run_in_sandbox(name: str | None) -> bool:
+    if GLOBAL_SETTINGS.MANAGE_SCRIPT_METADATA:
+        return False
+
+    if name is None:
+        return False
+
+    dependencies = get_dependencies_from_filename(name)
+    if not dependencies:
+        return False
+
+    # Notebook has inlined dependencies.
+    if DependencyManager.which("uv"):
+        if GLOBAL_SETTINGS.YES:
+            return True
+
+        # Check if not in an interactive terminal (i.e. Docker)
+        # default to False
+        if not sys.stdin.isatty():
+            return False
+
+        return click.confirm(
+            "This notebook has inlined package dependencies.\n"
+            + green(
+                "Run in a sandboxed venv containing this notebook's "
+                "dependencies?",
+                bold=True,
+            ),
+            default=True,
+        )
+    else:
+        echo(
+            bold(
+                "This notebook has inlined package dependencies. \n"
+                + "Consider installing uv so that marimo can create a "
+                "temporary venv with the notebook's packages: "
+                "https://github.com/astral-sh/uv"
+            )
+        )
+    return False
+
+#+END_SRC
+** Function run_in_sandbox
+#+BEGIN_SRC python
+def run_in_sandbox(
+    args: List[str],
+    name: Optional[str] = None,
+) -> int:
+    if not DependencyManager.which("uv"):
+        raise click.UsageError("uv must be installed to use --sandbox")
+
+    cmd = ["marimo"] + args
+    if "--sandbox" in cmd:
+        cmd.remove("--sandbox")
+
+    # If name if a filepath, parse the dependencies from the file
+    dependencies = (
+        get_dependencies_from_filename(name) if name is not None else []
+    )
+
+    # The sandbox needs to manage marimo, too, to make sure
+    # that the outer environment doesn't leak into the sandbox.
+    if "marimo" not in dependencies:
+        dependencies.append("marimo")
+
+    # Rename marimo to marimo=={__version__}
+    index_of_marimo = dependencies.index("marimo")
+    if index_of_marimo != -1:
+        dependencies[index_of_marimo] = f"marimo=={__version__}"
+
+        # During development, you can comment this out to install an
+        # editable version of marimo assuming you are in the marimo directory
+        # DO NOT COMMIT THIS WHEN SUBMITTING PRs
+        # dependencies[index_of_marimo] = "-e ."
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, suffix=".txt"
+    ) as temp_file:
+        temp_file.write("\n".join(dependencies))
+        temp_file_path = temp_file.name
+    # Clean up the temporary file after the subprocess has run
+    atexit.register(lambda: os.unlink(temp_file_path))
+
+    cmd = [
+        "uv",
+        "run",
+        "--isolated",
+        # sandboxed notebook shouldn't pick up existing pyproject.toml,
+        # which may conflict with the sandbox requirements
+        "--no-project",
+        "--with-requirements",
+        temp_file_path,
+    ] + cmd
+
+    echo(f"Running in a sandbox: {muted(' '.join(cmd))}")
+
+    env = os.environ.copy()
+    env["MARIMO_MANAGE_SCRIPT_METADATA"] = "true"
+
+    process = subprocess.Popen(cmd, env=env)
+
+    def handler(sig: int, frame: Any) -> None:
+        del sig
+        del frame
+        if sys.platform == "win32":
+            os.kill(process.pid, signal.CTRL_C_EVENT)
+        else:
+            os.kill(process.pid, signal.SIGINT)
+
+    signal.signal(signal.SIGINT, handler)
+
+    return process.wait()
+
+#+END_SRC
+* upgrade
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.upgrade
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/upgrade.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import json
+import os
+import urllib.request
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Callable, Dict, Optional
+
+from marimo import __version__ as current_version
+from marimo._cli.print import echo, green, orange
+from marimo._server.api.status import HTTPException
+from marimo._tracer import server_tracer
+from marimo._utils.config.config import ConfigReader
+
+#+END_SRC
+** Assignment FETCH_TIMEOUT = 5
+#+BEGIN_SRC python
+FETCH_TIMEOUT = 5
+
+#+END_SRC
+** @dataclass: Class MarimoCLIState
+#+BEGIN_SRC python
+@dataclass
+class MarimoCLIState:
+    latest_version: Optional[str] = None
+    last_checked_at: Optional[str] = None
+
+#+END_SRC
+** Function print_latest_version
+#+BEGIN_SRC python
+def print_latest_version(current_version: str, latest_version: str) -> None:
+    message = f"Update available {current_version} → {latest_version}"
+    echo(orange(message))
+    echo(f"Run {green('pip install --upgrade marimo')} to upgrade.")
+    echo()
+
+#+END_SRC
+** @server_tracer.start_as_current_span("check_for_updates"): Function check_for_updates
+#+BEGIN_SRC python
+@server_tracer.start_as_current_span("check_for_updates")
+def check_for_updates(on_update: Callable[[str, str], None]) -> None:
+    try:
+        _check_for_updates_internal(on_update)
+    except Exception:
+        # Errors are caught internally
+        # but as a last resort, we don't want to crash the CLI
+        pass
+
+#+END_SRC
+** Function _check_for_updates_internal
+#+BEGIN_SRC python
+def _check_for_updates_internal(on_update: Callable[[str, str], None]) -> None:
+    from packaging import version
+
+    config_reader = ConfigReader.for_filename("state.toml")
+    if not config_reader:
+        # Couldn't find home directory, so do nothing
+        return
+
+    # Load the state file or create a default state if it doesn't exist
+    state: MarimoCLIState = config_reader.read_toml(
+        MarimoCLIState, fallback=MarimoCLIState()
+    )
+
+    # Maybe update the state with the latest version
+    state = _update_with_latest_version(state)
+
+    if not state.latest_version:
+        # We couldn't get the latest version, so do nothing
+        return
+
+    # Compare versions and warn if there's a new version
+    if current_version and version.parse(state.latest_version) > version.parse(
+        current_version
+    ):
+        on_update(current_version, state.latest_version)
+
+    # Save the state, create directories if necessary
+    config_reader.write_toml(state)
+
+#+END_SRC
+** Function _update_with_latest_version
+#+BEGIN_SRC python
+def _update_with_latest_version(state: MarimoCLIState) -> MarimoCLIState:
+    """
+    If we have not saved the latest version,
+    or its newer than the one we have, update it.
+    """
+    # querying pypi is +250kb and there is not a better API
+    # this endpoint just returns the version
+    # so we only use pypi in tests
+    is_test = os.environ.get("MARIMO_PYTEST_HOME_DIR") is not None
+    if is_test:
+        api_url = "https://pypi.org/pypi/marimo/json"
+    else:
+        api_url = "https://marimo.io/api/oss/latest-version"
+
+    # Check if it is a different day
+    if state.last_checked_at:
+        last_checked_date = datetime.strptime(
+            state.last_checked_at, "%Y-%m-%d"
+        ).date()
+        day_of_the_year = last_checked_date.timetuple().tm_yday
+        today_day_of_the_year = datetime.now().timetuple().tm_yday
+        if today_day_of_the_year == day_of_the_year:
+            # Same day of the year, so do nothing
+            return state
+
+    # Fetch the latest version from PyPI
+    try:
+        response = _fetch_data_from_url(api_url)
+        version = response["info"]["version"]
+        state.latest_version = version
+        state.last_checked_at = datetime.now().strftime("%Y-%m-%d")
+        return state
+    except Exception:
+        # Avoid errors blocking the CLI or adding noise
+        return state
+
+#+END_SRC
+** Function _fetch_data_from_url
+#+BEGIN_SRC python
+def _fetch_data_from_url(url: str) -> Dict[str, Any]:
+    with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT) as response:
+        status = response.status
+        if status == 200:
+            data = response.read()
+            encoding = response.info().get_content_charset("utf-8")
+            return json.loads(data.decode(encoding))  # type: ignore
+        else:
+            raise HTTPException(
+                status_code=status,
+                detail=f"HTTP request failed with status code {status}",
+            )
+
+#+END_SRC
+* config
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.config
+:END:
+** commands
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.config.commands
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/config/commands.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import click
+
+from marimo._cli.config.utils import highlight_toml_headers
+from marimo._cli.print import echo, green
+from marimo._config.manager import UserConfigManager
+
+#+END_SRC
+*** @click.group(help="""Various commands for the marimo config."""): Function config
+#+BEGIN_SRC python
+@click.group(help="""Various commands for the marimo config.""")
+def config() -> None:
+    pass
+
+#+END_SRC
+*** @click.command(help="""Show the marimo config"""): Function show
+#+BEGIN_SRC python
+@click.command(help="""Show the marimo config""")
+def show() -> None:
+    """
+    Print out marimo config information.
+    Example usage:
+
+        marimo config show
+    """
+    import tomlkit
+
+    config_manager = UserConfigManager()
+    # Save config if doesn't exist
+    config_manager.save_config_if_missing()
+    echo(f"User config from {green(config_manager.get_config_path())}\n")
+    toml_string = tomlkit.dumps(config_manager.get_config())
+    echo(highlight_toml_headers(toml_string))
+
+#+END_SRC
+*** Call config.add_command(show)
+#+BEGIN_SRC python
+config.add_command(show)
+
+#+END_SRC
+** utils
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.config.utils
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/config/utils.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._cli.print import orange
+
+#+END_SRC
+*** Function highlight_toml_headers
+#+BEGIN_SRC python
+def highlight_toml_headers(toml_string: str) -> str:
+    lines = toml_string.splitlines()
+    highlighted_lines: list[str] = []
+
+    for line in lines:
+        stripped_line = line.strip()
+        if stripped_line.startswith("[") and stripped_line.endswith("]"):
+            highlighted_lines.append(orange(line))
+        else:
+            highlighted_lines.append(line)
+
+    return "\n".join(highlighted_lines)
+
+#+END_SRC
+* convert
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.convert
+:END:
+** commands
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.convert.commands
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/convert/commands.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from pathlib import Path
+
+import click
+
+from marimo._cli.convert.markdown import convert_from_md
+from marimo._cli.convert.utils import load_external_file
+from marimo._cli.print import echo
+from marimo._convert.ipynb import convert_from_ipynb
+from marimo._utils.paths import maybe_make_dirs
+
+#+END_SRC
+*** @click.argument("filename", required=True) click.option(     "-o",     "--output",     type=str,     default=None,     help="""     Output file to save the converted notebook to.     If not provided, the converted notebook will be printed to stdout.     """, ): Function convert
+#+BEGIN_SRC python
+@click.argument("filename", required=True)
+@click.option(
+    "-o",
+    "--output",
+    type=str,
+    default=None,
+    help="""
+    Output file to save the converted notebook to.
+    If not provided, the converted notebook will be printed to stdout.
+    """,
+)
+def convert(
+    filename: str,
+    output: str,
+) -> None:
+    r"""Convert a Jupyter notebook or Markdown file to a marimo notebook.
+
+    The argument may be either a path to a local .ipynb/.md file,
+    or an .ipynb/.md file hosted on GitHub.
+
+    Example usage:
+
+        marimo convert your_nb.ipynb -o your_nb.py
+
+    or
+
+        marimo convert your_nb.md -o your_nb.py
+
+    Jupyter notebook conversion will strip out all outputs. Markdown cell
+    conversion with occur on the presence of `\`\`\`{python}` code blocks.
+    After conversion, you can open the notebook in the editor:
+
+        marimo edit your_nb.py
+
+    Since marimo is different from traditional notebooks, once in the editor,
+    you may need to fix errors like multiple definition errors or cycle
+    errors.
+    """
+    ext = Path(filename).suffix
+    if ext not in (".ipynb", ".md", ".qmd"):
+        raise click.UsageError("File must be an .ipynb or .md file")
+
+    text = load_external_file(filename, ext)
+    if ext == ".ipynb":
+        notebook = convert_from_ipynb(text)
+    else:
+        assert ext in (".md", ".qmd")
+        notebook = convert_from_md(text)
+
+    if output:
+        # Make dirs if needed
+        maybe_make_dirs(output)
+        with open(output, "w") as f:
+            f.write(notebook)
+        echo(f"Converted notebook saved to {output}")
+    else:
+        echo(notebook)
+
+#+END_SRC
+** ipynb
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.convert.ipynb
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/convert/ipynb.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._cli.convert.utils import (
+    load_external_file,
+)
+from marimo._convert.ipynb import convert_from_ipynb
+
+#+END_SRC
+*** Function convert_from_ipynb_file
+#+BEGIN_SRC python
+def convert_from_ipynb_file(file_path: str) -> str:
+    raw_notebook = load_external_file(file_path, "ipynb")
+    return convert_from_ipynb(raw_notebook)
+
+#+END_SRC
+** markdown
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.convert.markdown
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/convert/markdown.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Any, Callable, Literal, Optional, Union
+
+# Native to python
+from xml.etree.ElementTree import Element, SubElement
+
+# Markdown is a dependency of marimo, as such we utilize it as much as possible
+# to parse markdown.
+from markdown import Markdown
+from markdown.blockparser import BlockParser
+from markdown.blockprocessors import BlockProcessor
+from markdown.preprocessors import Preprocessor
+from markdown.util import HTML_PLACEHOLDER_RE, Registry
+
+# As are extensions
+from pymdownx.superfences import (  # type: ignore
+    RE_NESTED_FENCE_START,
+    SuperFencesCodeExtension,
+)
+
+from marimo._ast import codegen
+from marimo._ast.app import App, InternalApp, _AppConfig
+from marimo._ast.cell import Cell, CellConfig
+from marimo._ast.compiler import compile_cell
+from marimo._convert.utils import markdown_to_marimo
+
+#+END_SRC
+*** Assignment MARIMO_MD = "marimo-md"
+#+BEGIN_SRC python
+MARIMO_MD = "marimo-md"
+
+#+END_SRC
+*** Assignment MARIMO_CODE = "marimo-code"
+#+BEGIN_SRC python
+MARIMO_CODE = "marimo-code"
+
+#+END_SRC
+*** Assignment ConvertKeys = Union[Literal["marimo"], Literal["marimo-app"]]
+#+BEGIN_SRC python
+ConvertKeys = Union[Literal["marimo"], Literal["marimo-app"]]
+
+#+END_SRC
+*** Function _is_code_tag
+#+BEGIN_SRC python
+def _is_code_tag(text: str) -> bool:
+    head = text.split("\n")[0].strip()
+    return bool(re.search(r"\{.*python.*\}", head))
+
+#+END_SRC
+*** Function formatted_code_block
+#+BEGIN_SRC python
+def formatted_code_block(
+    code: str, attributes: Optional[dict[str, str]] = None
+) -> str:
+    """Wraps code in a fenced code block with marimo attributes."""
+    if attributes is None:
+        attributes = {}
+    attribute_str = " ".join(
+        [""] + [f'{key}="{value}"' for key, value in attributes.items()]
+    )
+    guard = "```"
+    while guard in code:
+        guard += "`"
+    return "\n".join(
+        [f"""{guard}{{.python.marimo{attribute_str}}}""", code, guard, ""]
+    )
+
+#+END_SRC
+*** Function app_config_from_root
+#+BEGIN_SRC python
+def app_config_from_root(root: Element) -> _AppConfig:
+    # Extract meta data from root attributes.
+    config_keys = {
+        "title": "app_title",
+    }
+    config = {
+        config_keys[key]: value
+        for key, value in root.items()
+        if key in config_keys
+    }
+    # Try to pass on other attributes as is
+    config.update({k: v for k, v in root.items() if k not in config_keys})
+    # Remove values particular to markdown saves.
+    config.pop("marimo-version", None)
+
+    return _AppConfig.from_untrusted_dict(config)
+
+#+END_SRC
+*** Function get_source_from_tag
+#+BEGIN_SRC python
+def get_source_from_tag(tag: Element) -> str:
+    source = tag.text if tag.text else ""
+    if tag.tag == MARIMO_MD:
+        # Only check here to allow for empty code blocks.
+        if not (source and source.strip()):
+            return ""
+        source = markdown_to_marimo(source)
+    else:
+        assert tag.tag == MARIMO_CODE, f"Unknown tag: {tag.tag}"
+    return source
+
+#+END_SRC
+*** Function get_cell_config_from_tag
+#+BEGIN_SRC python
+def get_cell_config_from_tag(tag: Element, **defaults: bool) -> CellConfig:
+    boolean_attrs = {
+        **defaults,
+        **{k: v == "true" for k, v in tag.attrib.items()},
+    }
+    return CellConfig.from_dict(boolean_attrs)
+
+#+END_SRC
+*** @dataclass: Class SafeWrap
+#+BEGIN_SRC python
+# TODO: Consider upstreaming some logic such that this isn't such a terrible
+# hack. At some point rewriting / overriding the markdown parser would be a
+# better idea than all these little work arounds.
+@dataclass
+class SafeWrap:
+    app: App
+
+    def strip(self) -> App:
+        return self.app
+
+#+END_SRC
+*** Function _tree_to_app_obj
+#+BEGIN_SRC python
+def _tree_to_app_obj(root: Element) -> SafeWrap:
+    app_config = app_config_from_root(root)
+    app = InternalApp(App(**app_config.asdict()))
+
+    for child in root:
+        name = child.get("name", "__")
+        # Default to hiding markdown cells.
+        cell_config = get_cell_config_from_tag(
+            child, hide_code=child.tag == MARIMO_MD
+        )
+        source = get_source_from_tag(child)
+
+        cell_id = app.cell_manager.create_cell_id()
+        try:
+            cell_impl = compile_cell(source, cell_id)
+            cell_impl.configure(cell_config)
+            cell = Cell(_name=name, _cell=cell_impl)
+
+            app.cell_manager._register_cell(
+                cell,
+                app=app,
+            )
+        except SyntaxError:
+            # Cannot use register_unparsable_cell, since there is an
+            # expectation of a dedent and newlines.
+            app.cell_manager.register_cell(
+                cell_id=cell_id,
+                code=source,
+                config=cell_config,
+                name=name or "__",
+                cell=None,
+            )
+
+    return SafeWrap(app._app)
+
+#+END_SRC
+*** Function _tree_to_app
+#+BEGIN_SRC python
+def _tree_to_app(root: Element) -> str:
+    app_config = app_config_from_root(root)
+
+    sources: list[str] = []
+    names: list[str] = []
+    cell_config: list[CellConfig] = []
+    for child in root:
+        names.append(child.get("name", "__"))
+        cell_config.append(get_cell_config_from_tag(child))
+        sources.append(get_source_from_tag(child))
+
+    return codegen.generate_filecontents(
+        sources,
+        names,
+        cell_config,
+        config=app_config,
+    )
+
+#+END_SRC
+*** Class IdentityParser
+#+BEGIN_SRC python
+class IdentityParser(Markdown):
+    """Leaves markdown unchanged."""
+
+    # Considering how ubiquitous "markdown" is, it's a little surprising the
+    # internal structure isn't cleaner/ more modular. This "monkey-patching"
+    # is comparable to some of the code in markdown extensions- and given this
+    # library has been around since 2004, the internals should be relatively
+    # stable.
+    output_formats: dict[Literal["identity"], Callable[[Element], str]] = {  # type: ignore[assignment, misc]
+        "identity": lambda x: x.text if x.text else "",
+    }
+
+    def build_parser(self) -> IdentityParser:
+        """
+        Creates blank registries as a base.
+        """
+        self.preprocessors = Registry()
+        self.parser = BlockParser(self)
+        self.inlinePatterns = Registry()
+        self.treeprocessors = Registry()
+        self.postprocessors = Registry()
+        return self
+
+    def convert(self, text: str) -> str:
+        """Override the convert method to return the parsed text.
+
+        Note that evoked by itself, would create an infinite loop, since
+        block-parsers will never dequeue the extracted blocks.
+        """
+        if len(self.parser.blockprocessors) == 0:
+            self.parser.blockprocessors.register(
+                IdentityProcessor(self.parser), "identity", 1
+            )
+
+        return super().convert(text)
+
+#+END_SRC
+*** Class MarimoParser
+#+BEGIN_SRC python
+class MarimoParser(IdentityParser):
+    """Parses Markdown to marimo notebook string."""
+
+    meta: dict[str, Any]
+
+    output_formats: dict[ConvertKeys, Callable[[Element], Union[str, App]]] = {  # type: ignore[assignment, misc]
+        "marimo": _tree_to_app,
+        "marimo-app": _tree_to_app_obj,
+    }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Build here opposed to the parent class since there is intermediate
+        # logic after the parser is built, and it is more clear here what is
+        # registered.
+        self.stripTopLevelTags = False
+
+        # Note: MetaPreprocessor does not properly handle frontmatter yaml, so
+        # cleanup occurs in the block-processor.
+        self.preprocessors.register(
+            FrontMatterPreprocessor(self), "frontmatter", 100
+        )
+        fences_ext = SuperFencesCodeExtension()
+        fences_ext.extendMarkdown(self)
+        # TODO: Consider adding the admonition extension, and integrating it
+        # with mo.markdown callouts.
+
+        block_processor = ExpandAndClassifyProcessor(self.parser)
+        block_processor.stash = fences_ext.stash.stash
+        self.parser.blockprocessors.register(
+            block_processor, "marimo-processor", 10
+        )
+
+#+END_SRC
+*** Class SanitizeParser
+#+BEGIN_SRC python
+class SanitizeParser(IdentityParser):
+    """Sanitizes Markdown to non-executable string."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Potentially no need for a separate sanitizer. We could use a
+        # heuristic to determine if this block should be treated as code, but
+        # to catch all edgecases, just run it through the similar superfence
+        # logic.
+        self.stripTopLevelTags = False
+
+        fences_ext = SuperFencesCodeExtension()
+        fences_ext.extendMarkdown(self)
+
+        preprocessor = SanitizeProcessor(self)
+        preprocessor.stash = fences_ext.stash.stash
+        self.preprocessors.register(preprocessor, "marimo-sanitizer", 1)
+
+        # Add back in identity to dequeue.
+        self.parser.blockprocessors.register(
+            IdentityProcessor(self.parser), "identity", 1
+        )
+
+#+END_SRC
+*** Class FrontMatterPreprocessor
+#+BEGIN_SRC python
+class FrontMatterPreprocessor(Preprocessor):
+    """Preprocessor for to extract YAML front matter.
+
+    The built-in MetaPreprocessor does not handle frontmatter yaml properly, so
+    this is a custom implementation.
+
+    Like the built-in MetaPreprocessor, this preprocessor extracts yaml and
+    stores it in the Markdown's metadata attribute. Inspired by conversation
+    and linked project in github/Python-Markdown/markdown/497. See docdown
+    (BSD-3) or python-frontmatter (MIT) for similar implementations.
+    """
+
+    def __init__(self, md: MarimoParser):
+        super().__init__(md)
+        self.md = md
+        self.md.meta = {}
+        # Regex captures loose yaml for frontmatter
+        # Should match the following:
+        # ---
+        # title: "Title"
+        # whatever
+        # ---
+        self.yaml_front_matter_regex = re.compile(
+            r"^---\s*\n(.*?\n?)(?:---)\s*\n", re.UNICODE | re.DOTALL
+        )
+
+    def run(self, lines: list[str]) -> list[str]:
+        import yaml
+
+        # CSafeLoader is faster than SafeLoader.
+        try:
+            from yaml import CSafeLoader as SafeLoader
+        except ImportError:
+            from yaml import SafeLoader  # type: ignore[assignment]
+
+        if not lines:
+            return lines
+
+        doc = "\n".join(lines)
+        result = self.yaml_front_matter_regex.match(doc)
+
+        if result:
+            yaml_content = result.group(1)
+            try:
+                meta = yaml.load(yaml_content, SafeLoader)
+                if isinstance(meta, dict):
+                    self.md.meta = meta  # type: ignore[attr-defined]
+                doc = doc[result.end() :].lstrip("\n")
+            # If there's an error in parsing YAML, ignore the meta and proceed.
+            except yaml.YAMLError as e:
+                raise e
+        return doc.split("\n")
+
+#+END_SRC
+*** Class SanitizeProcessor
+#+BEGIN_SRC python
+class SanitizeProcessor(Preprocessor):
+    """Prevent unintended executable code block injection.
+
+    Typically run on Markdown fragments (e.g. cells) to prevent code injection.
+    **Note***: Must run after SuperFencesCodeExtension.
+    """
+
+    stash: dict[str, Any]
+
+    def run(self, lines: list[str]) -> list[str]:
+        # Note, an empty stash is not sufficient since partially open code
+        # blocks could be in the text.
+        if not lines:
+            return lines
+
+        is_code = False
+        for i, line in enumerate(lines):
+            # Still need to do all replacements
+            if HTML_PLACEHOLDER_RE.match(line.strip()):
+                lookup = line.strip()[1:-1]
+                code = self.stash[lookup][0]
+                lines[i] = code
+                # This is a tag we would normally parse on.
+                # So protect it from being parsed improperly, by just treating
+                # it as code.
+                is_code = is_code or _is_code_tag(code)
+            # We also need to check for code block delimiters that superfences
+            # did not catch, as this will break other code blocks.
+            is_code = is_code or RE_NESTED_FENCE_START.match(line)
+
+        if not is_code:
+            return lines
+
+        return formatted_code_block(
+            markdown_to_marimo("\n".join(lines))
+        ).split("\n")
+
+#+END_SRC
+*** Class IdentityProcessor
+#+BEGIN_SRC python
+class IdentityProcessor(BlockProcessor):
+    """Leaves markdown unchanged."""
+
+    def test(*_args: Any) -> bool:
+        return True
+
+    def run(self, parent: Element, blocks: list[str]) -> None:
+        parent.text = "\n\n".join(blocks)
+        blocks.clear()
+
+#+END_SRC
+*** Class ExpandAndClassifyProcessor
+#+BEGIN_SRC python
+class ExpandAndClassifyProcessor(BlockProcessor):
+    """Separates code blocks and markdown blocks."""
+
+    stash: dict[str, Any]
+
+    def test(*_args: Any) -> bool:
+        return True
+
+    def run(self, parent: Element, blocks: list[str]) -> None:
+        # Copy app metadata to the parent element.
+        for key, value in self.parser.md.meta.items():  # type: ignore[attr-defined]
+            if isinstance(value, str):
+                parent.set(key, value)
+
+        text: list[str] = []
+
+        def add_paragraph() -> None:
+            if not text:
+                return
+            # An additional line break is added before code blocks.
+            if text[-1].strip() == "":
+                text.pop()
+                if not text:
+                    return
+            paragraph = SubElement(parent, MARIMO_MD)
+            paragraph.text = "\n".join(text).strip()
+            text.clear()
+
+        # Operate on line basis, not block basis, but use block processor
+        # instead of preprocessor, because we still want to operate on the
+        # xml tree.
+        for line in "\n\n".join(blocks).split("\n"):
+            # Superfences replaces code blocks with a placeholder,
+            # Check for the placeholder, and ensure it is a marimo code block,
+            # otherwise consider it as markdown.
+            if not HTML_PLACEHOLDER_RE.match(line.strip()):
+                # Use <!----> to indicate a separation between cells.
+                if line.strip() == "<!---->":
+                    add_paragraph()
+                    continue
+                text.append(line)
+                continue
+
+            lookup = line.strip()[1:-1]
+            code = self.stash[lookup][0]
+            if not _is_code_tag(code):
+                text.extend(code.split("\n"))
+                continue
+
+            # Definitively a code block, so add the previous markdown.
+            add_paragraph()
+
+            code_block = SubElement(parent, MARIMO_CODE)
+            block_lines = code.split("\n")
+            code_block.text = "\n".join(block_lines[1:-1])
+            # Extract attributes from the code block.
+            # Blocks are expected to be like this:
+            # {.python.marimo disabled="true"}
+            fence_start = RE_NESTED_FENCE_START.match(block_lines[0])
+            if fence_start:
+                # attrs is a bit of a misnomer, matches
+                # .python.marimo disabled="true"
+                inner = fence_start.group("attrs")
+                if inner:
+                    code_block.attrib = dict(
+                        re.findall(r'(\w+)="([^"]*)"', inner)
+                    )
+        add_paragraph()
+        # Flush to indicate all blocks have been processed.
+        blocks.clear()
+
+#+END_SRC
+*** Function convert_from_md_to_app
+#+BEGIN_SRC python
+def convert_from_md_to_app(text: str) -> App:
+    return MarimoParser(output_format="marimo-app").convert(text)  # type: ignore[arg-type, return-value]
+
+#+END_SRC
+*** Function convert_from_md
+#+BEGIN_SRC python
+def convert_from_md(text: str) -> str:
+    return MarimoParser(output_format="marimo").convert(text)  # type: ignore[arg-type]
+
+#+END_SRC
+*** Function sanitize_markdown
+#+BEGIN_SRC python
+def sanitize_markdown(text: str) -> str:
+    return SanitizeParser(output_format="identity").convert(text)  # type: ignore[arg-type]
+
+#+END_SRC
+*** Function is_sanitized_markdown
+#+BEGIN_SRC python
+def is_sanitized_markdown(text: str) -> bool:
+    # "Unsanitized" markdown contains potentially unintended executatable code
+    # block, which require backticks.
+    return "```" not in text or sanitize_markdown(text) == text
+
+#+END_SRC
+** utils
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.convert.utils
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/convert/utils.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import urllib.request
+
+from marimo._cli.file_path import get_github_src_url, is_github_src
+
+#+END_SRC
+*** Function load_external_file
+#+BEGIN_SRC python
+def load_external_file(file_path: str, ext: str) -> str:
+    notebook: str = ""
+    if is_github_src(file_path, ext=ext):
+        notebook = (
+            urllib.request.urlopen(get_github_src_url(file_path))
+            .read()
+            .decode("utf-8")
+        )
+    else:
+        with open(file_path, "r", encoding="utf-8") as f:
+            notebook = f.read()
+
+    return notebook
+
+#+END_SRC
+* development
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.development
+:END:
+** commands
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.development.commands
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/development/commands.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import os
+import subprocess
+import sys
+from typing import TYPE_CHECKING, Any, Dict
+
+import click
+
+from marimo._cli.print import orange
+
+#+END_SRC
+*** Function _generate_schema
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    import psutil
+
+
+def _generate_schema() -> dict[str, Any]:
+    from starlette.schemas import SchemaGenerator
+
+    import marimo._data.models as data
+    import marimo._messaging.errors as errors
+    import marimo._messaging.ops as ops
+    import marimo._runtime.requests as requests
+    import marimo._server.models.completion as completion
+    import marimo._server.models.export as export
+    import marimo._server.models.files as files
+    import marimo._server.models.home as home
+    import marimo._server.models.models as models
+    import marimo._server.models.packages as packages
+    import marimo._snippets.snippets as snippets
+    from marimo import __version__
+    from marimo._ast.cell import CellConfig, RuntimeStateType
+    from marimo._config.config import MarimoConfig
+    from marimo._messaging.cell_output import CellChannel, CellOutput
+    from marimo._messaging.mimetypes import KnownMimeType
+    from marimo._output.mime import MIME
+    from marimo._plugins.core.web_component import JSONType
+    from marimo._runtime.packages.package_manager import PackageDescription
+    from marimo._server.api.router import build_routes
+    from marimo._utils.dataclass_to_openapi import (
+        PythonTypeToOpenAPI,
+    )
+
+    # dataclass components used in websocket messages
+    # these are always snake_case
+    MESSAGES = [
+        # Base
+        MIME,
+        RuntimeStateType,
+        KnownMimeType,
+        CellChannel,
+        data.NonNestedLiteral,
+        data.DataType,
+        CellConfig,
+        MarimoConfig,
+        # Errors
+        errors.CycleError,
+        errors.MultipleDefinitionError,
+        errors.DeleteNonlocalError,
+        errors.MarimoInterruptionError,
+        errors.MarimoAncestorStoppedError,
+        errors.MarimoAncestorPreventedError,
+        errors.MarimoStrictExecutionError,
+        errors.MarimoExceptionRaisedError,
+        errors.MarimoSyntaxError,
+        errors.UnknownError,
+        errors.Error,
+        # Outputs
+        CellOutput,
+        # Data
+        data.DataTableColumn,
+        data.DataTable,
+        data.ColumnSummary,
+        # Operations
+        ops.CellOp,
+        ops.HumanReadableStatus,
+        ops.FunctionCallResult,
+        ops.SendUIElementMessage,
+        ops.RemoveUIElements,
+        ops.Interrupted,
+        ops.CompletedRun,
+        ops.KernelReady,
+        ops.CompletionResult,
+        ops.Alert,
+        ops.MissingPackageAlert,
+        ops.InstallingPackageAlert,
+        ops.Reconnected,
+        ops.Banner,
+        ops.Reload,
+        ops.VariableDeclaration,
+        ops.VariableValue,
+        ops.Variables,
+        ops.VariableValues,
+        ops.Datasets,
+        ops.DataColumnPreview,
+        ops.QueryParamsSet,
+        ops.QueryParamsAppend,
+        ops.QueryParamsDelete,
+        ops.QueryParamsClear,
+        ops.UpdateCellCodes,
+        ops.UpdateCellIdsRequest,
+        ops.FocusCell,
+        ops.MessageOperation,
+    ]
+
+    # dataclass components used in requests/responses
+    REQUEST_RESPONSES = [
+        # Sub components
+        requests.AppMetadata,
+        home.MarimoFile,
+        files.FileInfo,
+        requests.ExecutionRequest,
+        snippets.SnippetSection,
+        snippets.Snippet,
+        snippets.Snippets,
+        requests.SetUIElementValueRequest,
+        # Requests/responses
+        completion.AiCompletionRequest,
+        export.ExportAsHTMLRequest,
+        export.ExportAsMarkdownRequest,
+        export.ExportAsScriptRequest,
+        files.FileCreateRequest,
+        files.FileCreateResponse,
+        files.FileDeleteRequest,
+        files.FileDeleteResponse,
+        files.FileDetailsRequest,
+        files.FileDetailsResponse,
+        files.FileListRequest,
+        files.FileListResponse,
+        files.FileMoveRequest,
+        files.FileMoveResponse,
+        files.FileUpdateRequest,
+        files.FileUpdateResponse,
+        packages.AddPackageRequest,
+        PackageDescription,
+        packages.ListPackagesResponse,
+        packages.PackageOperationResponse,
+        packages.RemovePackageRequest,
+        home.OpenTutorialRequest,
+        home.RecentFilesResponse,
+        home.RunningNotebooksResponse,
+        home.ShutdownSessionRequest,
+        home.WorkspaceFilesRequest,
+        home.WorkspaceFilesResponse,
+        models.BaseResponse,
+        models.FormatRequest,
+        models.FormatResponse,
+        models.InstantiateRequest,
+        models.OpenFileRequest,
+        models.ReadCodeResponse,
+        models.RenameFileRequest,
+        models.RunRequest,
+        models.RunScratchpadRequest,
+        models.SaveAppConfigurationRequest,
+        models.SaveNotebookRequest,
+        models.CopyNotebookRequest,
+        models.SaveUserConfigurationRequest,
+        models.StdinRequest,
+        models.SuccessResponse,
+        models.SuccessResponse,
+        models.UpdateComponentValuesRequest,
+        requests.CodeCompletionRequest,
+        requests.CreationRequest,
+        requests.DeleteCellRequest,
+        requests.ExecuteMultipleRequest,
+        requests.ExecuteScratchpadRequest,
+        requests.ExecuteStaleRequest,
+        requests.ExecutionRequest,
+        requests.FunctionCallRequest,
+        requests.InstallMissingPackagesRequest,
+        requests.PreviewDatasetColumnRequest,
+        requests.RenameRequest,
+        requests.SetCellConfigRequest,
+        requests.SetUserConfigRequest,
+        requests.StopRequest,
+    ]
+
+    processed_classes: Dict[Any, str] = {
+        JSONType: "JSONType",
+    }
+    component_schemas: Dict[str, Any] = {
+        # Hand-written schema to avoid circular dependencies
+        "JSONType": {
+            "oneOf": [
+                {"type": "string"},
+                {"type": "number"},
+                {"type": "object"},
+                {"type": "array"},
+                {"type": "boolean"},
+                {"type": "null"},
+            ]
+        }
+    }
+    # We must override the names of some Union Types,
+    # otherwise, their __name__ is "Union"
+    name_overrides: Dict[Any, str] = {
+        JSONType: "JSONType",
+        errors.Error: "Error",
+        KnownMimeType: "MimeType",
+        data.DataType: "DataType",
+        data.NonNestedLiteral: "NonNestedLiteral",
+        RuntimeStateType: "RuntimeState",
+        CellChannel: "CellChannel",
+        ops.MessageOperation: "MessageOperation",
+    }
+
+    converter = PythonTypeToOpenAPI(
+        camel_case=False, name_overrides=name_overrides
+    )
+    for cls in MESSAGES:
+        # Remove self from the list
+        # since it may not have been processed yet
+        if cls in processed_classes:
+            del processed_classes[cls]
+        name = name_overrides.get(cls, cls.__name__)  # type: ignore[attr-defined]
+        component_schemas[name] = converter.convert(cls, processed_classes)
+        processed_classes[cls] = name
+
+    converter = PythonTypeToOpenAPI(
+        camel_case=True, name_overrides=name_overrides
+    )
+    for cls in REQUEST_RESPONSES:
+        # Remove self from the list
+        # since it may not have been processed yet
+        if cls in processed_classes:
+            del processed_classes[cls]
+        name = name_overrides.get(cls, cls.__name__)  # type: ignore[attr-defined]
+        component_schemas[name] = converter.convert(cls, processed_classes)
+        processed_classes[cls] = name
+
+    schemas = SchemaGenerator(
+        {
+            "openapi": "3.1.0",
+            "info": {"title": "marimo API", "version": __version__},
+            "components": {
+                "schemas": {
+                    **component_schemas,
+                }
+            },
+        }
+    )
+
+    return schemas.get_schema(routes=build_routes())
+
+#+END_SRC
+*** @click.group(     help="""Various commands for the marimo development.""", hidden=True ): Function development
+#+BEGIN_SRC python
+@click.group(
+    help="""Various commands for the marimo development.""", hidden=True
+)
+def development() -> None:
+    pass
+
+#+END_SRC
+*** @click.command(help="""Print the marimo OpenAPI schema"""): Function openapi
+#+BEGIN_SRC python
+@click.command(help="""Print the marimo OpenAPI schema""")
+def openapi() -> None:
+    """
+    Example usage:
+
+        marimo development openapi
+    """
+    import yaml
+
+    click.echo(yaml.dump(_generate_schema(), default_flow_style=False))
+
+#+END_SRC
+*** @click.group(help="Various commands for the marimo processes", hidden=True): Function ps
+#+BEGIN_SRC python
+@click.group(help="Various commands for the marimo processes", hidden=True)
+def ps() -> None:
+    pass
+
+#+END_SRC
+*** Function get_marimo_processes
+#+BEGIN_SRC python
+def get_marimo_processes() -> list["psutil.Process"]:
+    import psutil
+
+    def is_marimo_process(proc: psutil.Process) -> bool:
+        if proc.name() == "marimo":
+            return True
+
+        if proc.name().lower() == "python":
+            try:
+                cmds = proc.cmdline()
+            except psutil.AccessDenied:
+                return False
+            except psutil.ZombieProcess:
+                return False
+            # any endswith marimo
+            has_marimo = any(x.endswith("marimo") for x in cmds)
+            # any command equals "tutorial", "edit", or "run"
+            has_running_command = any(
+                x in {"run", "tutorial", "edit"} for x in cmds
+            )
+            return has_marimo and has_running_command
+
+        return False
+
+    result: list[psutil.Process] = []
+
+    for proc in psutil.process_iter():
+        if is_marimo_process(proc):
+            result.append(proc)
+
+    return result
+
+#+END_SRC
+*** @ps.command(help="List the marimo processes", name="list"): Function list_processes
+#+BEGIN_SRC python
+@ps.command(help="List the marimo processes", name="list")
+def list_processes() -> None:
+    """
+    Example usage:
+
+        marimo development ps list
+    """
+    # pretty print processes
+    result = get_marimo_processes()
+    for proc in result:
+        cmds = proc.cmdline()
+        cmd = " ".join(cmds[1:])
+        click.echo(f"PID: {orange(str(proc.pid))} | {cmd}")
+
+#+END_SRC
+*** @ps.command(help="Kill the marimo processes"): Function killall
+#+BEGIN_SRC python
+@ps.command(help="Kill the marimo processes")
+def killall() -> None:
+    """
+    Example usage:
+
+        marimo development ps killall
+    """
+    import os
+
+    for proc in get_marimo_processes():
+        # Ignore self
+        if proc.pid == os.getpid():
+            continue
+        proc.kill()
+        click.echo(f"Killed process {proc.pid}")
+
+    click.echo("Killed all marimo processes")
+
+#+END_SRC
+*** @click.command(     help="Inline packages according to PEP 723", name="inline-packages" ) click.argument("name", required=True): Function inline_packages
+#+BEGIN_SRC python
+@click.command(
+    help="Inline packages according to PEP 723", name="inline-packages"
+)
+@click.argument("name", required=True)
+def inline_packages(
+    name: str,
+) -> None:
+    """
+    Example usage:
+
+        marimo development inline-packages
+
+    This uses some heuristics to guess the package names from the imports in
+    the file.
+
+    Requires uv.
+    Installation: https://docs.astral.sh/uv/getting-started/installation/
+    """
+    from marimo._dependencies.dependencies import DependencyManager
+    from marimo._runtime.packages.module_name_to_pypi_name import (
+        module_name_to_pypi_name,
+    )
+
+    # Validate uv is installed
+    if not DependencyManager.which("uv"):
+        raise click.UsageError(
+            "uv is not installed. See https://docs.astral.sh/uv/getting-started/installation/"
+        )
+
+    # Validate the file exists
+    if not os.path.exists(name):
+        raise click.FileError(name)
+
+    # Validate >=3.10 for sys.stdlib_module_names
+    if sys.version_info < (3, 10):
+        # TOD: add support for < 3.10
+        # We can use https://github.com/omnilib/stdlibs
+        # to get the stdlib module names
+        raise click.UsageError("Requires Python >=3.10")
+
+    package_names = module_name_to_pypi_name()
+
+    def get_pypi_package_names() -> list[str]:
+        with open(name, "r") as file:
+            tree = ast.parse(file.read(), filename=name)
+
+        imported_modules = set[str]()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported_modules.add(alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imported_modules.add(node.module.split(".")[0])
+
+        pypi_names = [
+            package_names.get(mod, mod.replace("_", "-"))
+            for mod in imported_modules
+        ]
+
+        return pypi_names
+
+    def is_stdlib_module(module_name: str) -> bool:
+        return module_name in sys.stdlib_module_names
+
+    pypi_names = get_pypi_package_names()
+
+    # Filter out python distribution packages
+    pypi_names = [name for name in pypi_names if not is_stdlib_module(name)]
+
+    click.echo(f"Inlining packages: {pypi_names}")
+    click.echo(f"into script: {name}")
+    subprocess.run(
+        [
+            "uv",
+            "add",
+            "--script",
+            name,
+        ]
+        + pypi_names
+    )
+
+#+END_SRC
+*** Call development.add_command(inline_packages)
+#+BEGIN_SRC python
+development.add_command(inline_packages)
+
+#+END_SRC
+*** Call development.add_command(openapi)
+#+BEGIN_SRC python
+development.add_command(openapi)
+
+#+END_SRC
+*** Call development.add_command(ps)
+#+BEGIN_SRC python
+development.add_command(ps)
+
+#+END_SRC
+* export
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.export
+:END:
+** commands
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._cli.export.commands
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_cli/export/commands.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import asyncio
+from typing import TYPE_CHECKING, Callable, Literal
+
+import click
+
+from marimo._cli.parse_args import parse_args
+from marimo._cli.print import echo, green
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._server.export import (
+    export_as_ipynb,
+    export_as_md,
+    export_as_script,
+    run_app_then_export_as_html,
+)
+from marimo._server.utils import asyncio_run
+from marimo._utils.file_watcher import FileWatcher
+from marimo._utils.marimo_path import MarimoPath
+from marimo._utils.paths import maybe_make_dirs
+
+#+END_SRC
+*** @click.group(help="""Export a notebook to various formats."""): Function export
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+@click.group(help="""Export a notebook to various formats.""")
+def export() -> None:
+    pass
+
+#+END_SRC
+*** Function watch_and_export
+#+BEGIN_SRC python
+def watch_and_export(
+    marimo_path: MarimoPath,
+    output: str,
+    watch: bool,
+    export_callback: Callable[[MarimoPath], str],
+) -> None:
+    if watch and not output:
+        raise click.UsageError(
+            "Cannot use --watch without providing "
+            + "an output file with --output."
+        )
+
+    def write_data(data: str) -> None:
+        if output:
+            # Make dirs if needed
+            maybe_make_dirs(output)
+            with open(output, "w") as f:
+                f.write(data)
+                f.close()
+        else:
+            echo(data)
+        return
+
+    # No watch, just run once
+    if not watch:
+        data = export_callback(marimo_path)
+        write_data(data)
+        return
+
+    async def on_file_changed(file_path: Path) -> None:
+        echo(f"File {str(file_path)} changed. Re-exporting to {green(output)}")
+        data = export_callback(MarimoPath(file_path))
+        write_data(data)
+
+    async def start() -> None:
+        # Watch the file for changes
+        watcher = FileWatcher.create(marimo_path.path, on_file_changed)
+        echo(f"Watching {green(marimo_path.relative_name)} for changes...")
+        watcher.start()
+        try:
+            # Run forever
+            while True:  # noqa: ASYNC110
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            watcher.stop()
+
+    asyncio_run(start())
+
+#+END_SRC
+*** @click.command(     help="""Run a notebook and export it as an HTML file.  Example:    \b   * marimo export html notebook.py -o notebook.html  Optionally pass CLI args to the notebook:    \b   * marimo export html notebook.py -o notebook.html -- -arg1 foo -arg2 bar """ ) click.option(     "--include-code/--no-include-code",     default=True,     show_default=True,     type=bool,     help="Include notebook code in the exported HTML file.", ) click.option(     "--watch/--no-watch",     default=False,     show_default=True,     type=bool,     help="""     Watch notebook for changes and regenerate HTML on modification.     If watchdog is installed, it will be used to watch the file.     Otherwise, file watcher will poll the file every 1s.     """, ) click.option(     "-o",     "--output",     type=str,     default=None,     help="""     Output file to save the HTML to.     If not provided, the HTML will be printed to stdout.     """, ) click.argument("name", required=True) click.argument("args", nargs=-1, type=click.UNPROCESSED): Function html
+#+BEGIN_SRC python
+@click.command(
+    help="""Run a notebook and export it as an HTML file.
+
+Example:
+
+  \b
+  * marimo export html notebook.py -o notebook.html
+
+Optionally pass CLI args to the notebook:
+
+  \b
+  * marimo export html notebook.py -o notebook.html -- -arg1 foo -arg2 bar
+"""
+)
+@click.option(
+    "--include-code/--no-include-code",
+    default=True,
+    show_default=True,
+    type=bool,
+    help="Include notebook code in the exported HTML file.",
+)
+@click.option(
+    "--watch/--no-watch",
+    default=False,
+    show_default=True,
+    type=bool,
+    help="""
+    Watch notebook for changes and regenerate HTML on modification.
+    If watchdog is installed, it will be used to watch the file.
+    Otherwise, file watcher will poll the file every 1s.
+    """,
+)
+@click.option(
+    "-o",
+    "--output",
+    type=str,
+    default=None,
+    help="""
+    Output file to save the HTML to.
+    If not provided, the HTML will be printed to stdout.
+    """,
+)
+@click.argument("name", required=True)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def html(
+    name: str,
+    include_code: bool,
+    output: str,
+    watch: bool,
+    args: tuple[str],
+) -> None:
+    """
+    Run a notebook and export it as an HTML file.
+    """
+
+    cli_args = parse_args(args)
+
+    def export_callback(file_path: MarimoPath) -> str:
+        (html, _filename) = asyncio_run(
+            run_app_then_export_as_html(
+                file_path, include_code=include_code, cli_args=cli_args
+            )
+        )
+        return html
+
+    return watch_and_export(MarimoPath(name), output, watch, export_callback)
+
+#+END_SRC
+*** @click.command(     help=""" Export a marimo notebook as a flat script, in topological order.  Example:      \b     * marimo export script notebook.py -o notebook.script.py  Watch for changes and regenerate the script on modification:      \b     * marimo export script notebook.py -o notebook.script.py --watch """ ) click.option(     "--watch/--no-watch",     default=False,     show_default=True,     type=bool,     help="""     Watch notebook for changes and regenerate the script on modification.     If watchdog is installed, it will be used to watch the file.     Otherwise, file watcher will poll the file every 1s.     """, ) click.option(     "-o",     "--output",     type=str,     default=None,     help="""     Output file to save the script to.     If not provided, the script will be printed to stdout.     """, ) click.argument("name", required=True): Function script
+#+BEGIN_SRC python
+@click.command(
+    help="""
+Export a marimo notebook as a flat script, in topological order.
+
+Example:
+
+    \b
+    * marimo export script notebook.py -o notebook.script.py
+
+Watch for changes and regenerate the script on modification:
+
+    \b
+    * marimo export script notebook.py -o notebook.script.py --watch
+"""
+)
+@click.option(
+    "--watch/--no-watch",
+    default=False,
+    show_default=True,
+    type=bool,
+    help="""
+    Watch notebook for changes and regenerate the script on modification.
+    If watchdog is installed, it will be used to watch the file.
+    Otherwise, file watcher will poll the file every 1s.
+    """,
+)
+@click.option(
+    "-o",
+    "--output",
+    type=str,
+    default=None,
+    help="""
+    Output file to save the script to.
+    If not provided, the script will be printed to stdout.
+    """,
+)
+@click.argument("name", required=True)
+def script(
+    name: str,
+    output: str,
+    watch: bool,
+) -> None:
+    """
+    Export a marimo notebook as a flat script, in topological order.
+    """
+
+    def export_callback(file_path: MarimoPath) -> str:
+        return export_as_script(file_path)[0]
+
+    return watch_and_export(MarimoPath(name), output, watch, export_callback)
+
+#+END_SRC
+*** @click.command(     help=""" Export a marimo notebook as a code fenced Markdown file.  Example:      \b     * marimo export md notebook.py -o notebook.md  Watch for changes and regenerate the script on modification:      \b     * marimo export md notebook.py -o notebook.md --watch """ ) click.option(     "--watch/--no-watch",     default=False,     show_default=True,     type=bool,     help="""     Watch notebook for changes and regenerate the script on modification.     If watchdog is installed, it will be used to watch the file.     Otherwise, file watcher will poll the file every 1s.     """, ) click.option(     "-o",     "--output",     type=str,     default=None,     help="""     Output file to save the script to.     If not provided, markdown will be printed to stdout.     """, ) click.argument("name", required=True): Function md
+#+BEGIN_SRC python
+@click.command(
+    help="""
+Export a marimo notebook as a code fenced Markdown file.
+
+Example:
+
+    \b
+    * marimo export md notebook.py -o notebook.md
+
+Watch for changes and regenerate the script on modification:
+
+    \b
+    * marimo export md notebook.py -o notebook.md --watch
+"""
+)
+@click.option(
+    "--watch/--no-watch",
+    default=False,
+    show_default=True,
+    type=bool,
+    help="""
+    Watch notebook for changes and regenerate the script on modification.
+    If watchdog is installed, it will be used to watch the file.
+    Otherwise, file watcher will poll the file every 1s.
+    """,
+)
+@click.option(
+    "-o",
+    "--output",
+    type=str,
+    default=None,
+    help="""
+    Output file to save the script to.
+    If not provided, markdown will be printed to stdout.
+    """,
+)
+@click.argument("name", required=True)
+def md(
+    name: str,
+    output: str,
+    watch: bool,
+) -> None:
+    """
+    Export a marimo notebook as a code fenced markdown document.
+    """
+
+    def export_callback(file_path: MarimoPath) -> str:
+        return export_as_md(file_path)[0]
+
+    return watch_and_export(MarimoPath(name), output, watch, export_callback)
+
+#+END_SRC
+*** @click.command(     help=""" Export a marimo notebook as a Jupyter notebook in topological order.  Example:      \b     * marimo export ipynb notebook.py -o notebook.ipynb  Watch for changes and regenerate the script on modification:      \b     * marimo export ipynb notebook.py -o notebook.ipynb --watch  Requires nbformat to be installed. """ ) click.option(     "--sort",     type=click.Choice(["top-down", "topological"]),     default="topological",     help="Sort cells top-down or in topological order.",     show_default=True, ) click.option(     "--watch/--no-watch",     default=False,     show_default=True,     type=bool,     help="""     Watch notebook for changes and regenerate the ipynb on modification.     If watchdog is installed, it will be used to watch the file.     Otherwise, file watcher will poll the file every 1s.     """, ) click.option(     "-o",     "--output",     type=str,     default=None,     help="""     Output file to save the ipynb file to. If not provided, the ipynb contents     will be printed to stdout.     """, ) click.argument("name", required=True): Function ipynb
+#+BEGIN_SRC python
+@click.command(
+    help="""
+Export a marimo notebook as a Jupyter notebook in topological order.
+
+Example:
+
+    \b
+    * marimo export ipynb notebook.py -o notebook.ipynb
+
+Watch for changes and regenerate the script on modification:
+
+    \b
+    * marimo export ipynb notebook.py -o notebook.ipynb --watch
+
+Requires nbformat to be installed.
+"""
+)
+@click.option(
+    "--sort",
+    type=click.Choice(["top-down", "topological"]),
+    default="topological",
+    help="Sort cells top-down or in topological order.",
+    show_default=True,
+)
+@click.option(
+    "--watch/--no-watch",
+    default=False,
+    show_default=True,
+    type=bool,
+    help="""
+    Watch notebook for changes and regenerate the ipynb on modification.
+    If watchdog is installed, it will be used to watch the file.
+    Otherwise, file watcher will poll the file every 1s.
+    """,
+)
+@click.option(
+    "-o",
+    "--output",
+    type=str,
+    default=None,
+    help="""
+    Output file to save the ipynb file to. If not provided, the ipynb contents
+    will be printed to stdout.
+    """,
+)
+@click.argument("name", required=True)
+def ipynb(
+    name: str,
+    output: str,
+    watch: bool,
+    sort: Literal["top-down", "topological"],
+) -> None:
+    """
+    Export a marimo notebook as a Jupyter notebook in topological order.
+    """
+
+    def export_callback(file_path: MarimoPath) -> str:
+        return export_as_ipynb(file_path, sort_mode=sort)[0]
+
+    DependencyManager.nbformat.require(
+        why="to convert marimo notebooks to ipynb"
+    )
+
+    return watch_and_export(MarimoPath(name), output, watch, export_callback)
+
+#+END_SRC
+*** Call export.add_command(html)
+#+BEGIN_SRC python
+export.add_command(html)
+
+#+END_SRC
+*** Call export.add_command(script)
+#+BEGIN_SRC python
+export.add_command(script)
+
+#+END_SRC
+*** Call export.add_command(md)
+#+BEGIN_SRC python
+export.add_command(md)
+
+#+END_SRC
+*** Call export.add_command(ipynb)
+#+BEGIN_SRC python
+export.add_command(ipynb)
+
+#+END_SRC

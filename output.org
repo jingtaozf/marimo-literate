@@ -1,0 +1,3926 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._output
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/__init__.py
+:END:
+** Comment
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+#+END_SRC
+* builder
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.builder
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/builder.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import List, Optional, Tuple, Union
+
+#+END_SRC
+** Class _HTMLBuilder
+#+BEGIN_SRC python
+class _HTMLBuilder:
+    @staticmethod
+    def div(
+        children: Union[str, List[str]], *, style: Optional[str] = None
+    ) -> str:
+        resolved_children = (
+            [children] if isinstance(children, str) else children
+        )
+
+        params: List[Tuple[str, Union[str, None]]] = []
+        if style:
+            params.append(("style", style))
+
+        children_html = "".join(resolved_children)
+
+        if len(params) == 0:
+            return f"<div>{children_html}</div>"
+        else:
+            return f"<div {_join_params(params)}>{children_html}</div>"
+
+    @staticmethod
+    def img(
+        *,
+        src: Optional[str] = None,
+        alt: Optional[str] = None,
+        style: Optional[str] = None,
+    ) -> str:
+        params: List[Tuple[str, Union[str, None]]] = []
+        if src:
+            params.append(("src", src))
+        if alt:
+            params.append(("alt", alt))
+        if style:
+            params.append(("style", style))
+
+        if len(params) == 0:
+            return "<img />"
+        else:
+            return f"<img {_join_params(params)} />"
+
+    @staticmethod
+    def video(
+        *,
+        src: Optional[str] = None,
+        controls: bool = True,
+        muted: bool = False,
+        autoplay: bool = False,
+        loop: bool = False,
+        style: Optional[str] = None,
+    ) -> str:
+        params: List[Tuple[str, Union[str, None]]] = []
+        if src:
+            params.append(("src", src))
+        if controls:
+            params.append(("controls", ""))
+        if style:
+            params.append(("style", style))
+        if muted:
+            params.append(("muted", ""))
+        if autoplay:
+            params.append(("autoplay", ""))
+        if loop:
+            params.append(("loop", ""))
+
+        if len(params) == 0:
+            return "<video></video>"
+        else:
+            return f"<video {_join_params(params)}></video>"
+
+    @staticmethod
+    def audio(
+        *,
+        src: Optional[str] = None,
+        controls: bool = True,
+    ) -> str:
+        params: List[Tuple[str, Union[str, None]]] = []
+        if src:
+            params.append(("src", src))
+        if controls:
+            params.append(("controls", ""))
+
+        if len(params) == 0:
+            return "<audio></audio>"
+        else:
+            return f"<audio {_join_params(params)}></audio>"
+
+    @staticmethod
+    def iframe(
+        *,
+        src: Optional[str] = None,
+        srcdoc: Optional[str] = None,
+        width: Optional[str] = None,
+        height: Optional[str] = None,
+        style: Optional[str] = None,
+        onload: Optional[str] = None,
+        # Opinionated defaults
+        frameborder: Optional[str] = "0",
+        **kwargs: str,
+    ) -> str:
+        params: List[Tuple[str, Union[str, None]]] = []
+        if src:
+            params.append(("src", src))
+        if srcdoc:
+            params.append(("srcdoc", srcdoc))
+        if width:
+            params.append(("width", width))
+        if height:
+            params.append(("height", height))
+        if style:
+            params.append(("style", style))
+        if onload:
+            params.append(("onload", onload))
+        if frameborder:
+            params.append(("frameborder", frameborder))
+        for key, value in kwargs.items():
+            params.append((key, value))
+
+        if len(params) == 0:
+            return "<iframe></iframe>"
+        else:
+            return f"<iframe {_join_params(params)}></iframe>"
+
+    @staticmethod
+    def pre(child: str, style: Optional[str] = None) -> str:
+        params: List[Tuple[str, Union[str, None]]] = []
+        if style is not None:
+            params.append(("style", style))
+
+        if not params:
+            return f"<pre>{child}</pre>"
+        else:
+            return f"<pre {_join_params(params)}>{child}</pre>"
+
+    @staticmethod
+    def component(
+        component_name: str,
+        params: List[Tuple[str, Union[str, None]]],
+    ) -> str:
+        if len(params) == 0:
+            return f"<{component_name}></{component_name}>"
+        else:
+            return (
+                f"<{component_name} {_join_params(params)}></{component_name}>"
+            )
+
+    @staticmethod
+    def figure(
+        children: Union[str, List[str]], *, style: Optional[str] = None
+    ) -> str:
+        resolved_children = (
+            [children] if isinstance(children, str) else children
+        )
+
+        params: List[Tuple[str, Union[str, None]]] = []
+        if style:
+            params.append(("style", style))
+
+        children_html = "".join(resolved_children)
+
+        if len(params) == 0:
+            return f"<figure>{children_html}</figure>"
+        else:
+            return f"<figure {_join_params(params)}>{children_html}</figure>"
+
+    @staticmethod
+    def figcaption(
+        children: Union[str, List[str]], *, style: Optional[str] = None
+    ) -> str:
+        resolved_children = (
+            [children] if isinstance(children, str) else children
+        )
+
+        params: List[Tuple[str, Union[str, None]]] = []
+        if style:
+            params.append(("style", style))
+
+        children_html = "".join(resolved_children)
+
+        if len(params) == 0:
+            return f"<figcaption>{children_html}</figcaption>"
+        else:
+            return f"<figcaption {_join_params(params)}>{children_html}</figcaption>"
+
+#+END_SRC
+** Function _join_params
+#+BEGIN_SRC python
+def _join_params(params: List[Tuple[str, Union[str, None]]]) -> str:
+    # Filter None
+    params = [(k, v) for k, v in params if v is not None]
+
+    return " ".join([f"{k}='{v}'" if v != "" else f"{k}" for k, v in params])
+
+#+END_SRC
+** Assignment h = _HTMLBuilder()
+#+BEGIN_SRC python
+h = _HTMLBuilder()
+
+#+END_SRC
+* doc
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.doc
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/doc.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from marimo._output.hypertext import Html
+from marimo._output.md import md
+from marimo._output.rich_help import mddoc
+
+#+END_SRC
+** @mddoc: Function doc
+#+BEGIN_SRC python
+@mddoc
+def doc(obj: Any) -> Optional[Html]:
+    """Get documentation about an object.
+
+    If the object implements the `RichHelp` protocol, the documentation will be
+    rendered as markdown.
+
+    **Args.**
+
+    - `obj`: The object to get documentation about.
+
+    **Returns.**
+
+    - Documentation as an `Html` object if the object implements `RichHelp`;
+      otherwise, documentation is printed to console (and nothing is returned)
+    """
+    if hasattr(obj, "_rich_help_"):
+        msg = obj._rich_help_()
+        return (
+            md(msg) if msg is not None else md("No documentation available.")
+        )
+    else:
+        help(obj)
+        return None
+
+#+END_SRC
+* Formatting protocol
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatting
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatting.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""Formatting protocol
+
+This module defines a protocol for implementing objects that can be displayed
+using marimo's media viewer.
+
+To register a formatter for a type, user have two options:
+    1. Implement a method _mime_ on the class that takes an instance
+       and returns a (mime, data) tuple (i.e., implement the protocol MIME)
+    2. Register a formatter function that takes a value and returns
+       a (mime, data) tuple.
+
+The function get_formatter(value: T) can be used to obtain a function that
+instantiates a (mime, data) tuple for a value, with registered formatters
+taking precedence over the MIME protocol.
+"""
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+from __future__ import annotations
+
+import json
+import traceback
+from dataclasses import dataclass
+from html import escape
+from typing import Any, Callable, Optional, Tuple, Type, TypeVar, cast
+
+from marimo import _loggers as loggers
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.builder import h
+from marimo._output.formatters.repr_formatters import maybe_get_repr_formatter
+from marimo._output.formatters.utils import src_or_src_doc
+from marimo._output.hypertext import Html
+from marimo._output.rich_help import mddoc
+from marimo._output.utils import flatten_string
+from marimo._plugins.core.media import io_to_data_url
+from marimo._plugins.stateless.json_output import json_output
+from marimo._plugins.stateless.mime import mime_renderer
+from marimo._plugins.stateless.plain_text import plain_text
+from marimo._utils.methods import is_callable_method
+
+#+END_SRC
+** Assignment T = TypeVar("T")
+#+BEGIN_SRC python
+T = TypeVar("T")
+
+#+END_SRC
+** Assignment Formatter = Callable[[T], Tuple[KnownMimeType, str]]
+#+BEGIN_SRC python
+# we use Tuple instead of the builtin tuple for py3.8 compatibility
+Formatter = Callable[[T], Tuple[KnownMimeType, str]]
+
+#+END_SRC
+** Assignment FORMATTERS: dict[Type[Any], Formatter[Any]] = {}
+#+BEGIN_SRC python
+FORMATTERS: dict[Type[Any], Formatter[Any]] = {}
+
+#+END_SRC
+** Assignment OPINIONATED_FORMATTERS: dict[Type[Any], Formatter[Any]] = {}
+#+BEGIN_SRC python
+OPINIONATED_FORMATTERS: dict[Type[Any], Formatter[Any]] = {}
+
+#+END_SRC
+** Assignment LOGGER = loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = loggers.marimo_logger()
+
+#+END_SRC
+** Function formatter
+#+BEGIN_SRC python
+def formatter(t: Type[Any]) -> Callable[[Formatter[T]], Formatter[T]]:
+    """Register a formatter function for a type
+
+    Decorator to register a custom formatter for a given type.
+
+    For example, to register a formatter for a class Foo with a string
+    attribute data:
+
+    ```
+    @formatter(Foo)
+    def show_foo(foo: Foo) -> tuple[str, str]:
+        return ("text/html", f"<p>{foo.data}</p>")
+    ```
+    """
+
+    def register_format(f: Formatter[T]) -> Formatter[T]:
+        FORMATTERS[t] = f
+        return f
+
+    return register_format
+
+#+END_SRC
+** Function opinionated_formatter
+#+BEGIN_SRC python
+def opinionated_formatter(
+    t: Type[Any],
+) -> Callable[[Formatter[T]], Formatter[T]]:
+    """Register an opinionated formatter function for a type
+
+    Decorator to register a custom formatter for a given type.
+
+    For example, to register a formatter for a class Foo with a string
+    attribute data:
+
+    ```
+    @opinionated_formatter(Foo)
+    def show_df(foo: Foo) -> tuple[str, str]:
+        return table(foo)._mime_()
+    ```
+    """
+
+    def register_format(f: Formatter[T]) -> Formatter[T]:
+        OPINIONATED_FORMATTERS[t] = f
+        return f
+
+    return register_format
+
+#+END_SRC
+** Function get_formatter
+#+BEGIN_SRC python
+def get_formatter(
+    obj: T,
+    # Include opinionated formatters by default
+    # (e.g., for pandas, polars, arrow, etc.)
+    include_opinionated: bool = True,
+) -> Optional[Formatter[T]]:
+    from marimo._runtime.context import ContextNotInitializedError, get_context
+
+    try:
+        get_context()
+    except ContextNotInitializedError:
+        if not FORMATTERS:
+            from marimo._output.formatters.formatters import (
+                register_formatters,
+            )
+
+            # Install formatters when marimo is being used without
+            # a kernel (eg, in a unit test or when run as a Python script)
+            register_formatters()
+
+    # Plain opts out of opinionated formatters
+    if isinstance(obj, Plain):
+        child_formatter = get_formatter(obj.child, include_opinionated=False)
+        if child_formatter:
+
+            def plain_formatter(obj: T) -> tuple[KnownMimeType, str]:
+                assert child_formatter is not None
+                return child_formatter(cast(Plain, obj).child)
+
+            return plain_formatter
+
+    # Display protocol has the highest precedence
+    if is_callable_method(obj, "_display_"):
+
+        def f_mime(obj: T) -> tuple[KnownMimeType, str]:
+            displayable_object = obj._display_()  # type: ignore
+            _f = get_formatter(displayable_object)
+            if _f is not None:
+                return _f(displayable_object)
+            else:
+                return as_html(displayable_object)._mime_()
+
+        return f_mime
+
+    # Formatters dict gets precedence
+    if include_opinionated:
+        if type(obj) in OPINIONATED_FORMATTERS:
+            return OPINIONATED_FORMATTERS[type(obj)]
+
+    if type(obj) in FORMATTERS:
+        return FORMATTERS[type(obj)]
+    elif any(isinstance(obj, t) for t in FORMATTERS.keys()):
+        # we avoid using the walrus operator (matched_type := t) above
+        # to keep compatibility with Python < 3.8
+        for t in FORMATTERS.keys():
+            if isinstance(obj, t):
+                return FORMATTERS[t]
+
+    # Check for the MIME protocol
+    if is_callable_method(obj, "_mime_"):
+
+        def f_mime(obj: T) -> tuple[KnownMimeType, str]:
+            mime, data = obj._mime_()  # type: ignore
+            # Data should ideally a string, but in case it's bytes,
+            # we convert it to a data URL
+            if isinstance(data, bytes):
+                return (mime, io_to_data_url(data, mime) or "")  # type: ignore
+
+            return (mime, data)  # type: ignore
+
+        return f_mime
+
+    return maybe_get_repr_formatter(obj)
+
+#+END_SRC
+** @dataclass: Class FormattedOutput
+#+BEGIN_SRC python
+@dataclass
+class FormattedOutput:
+    mimetype: KnownMimeType
+    data: str
+    traceback: Optional[str] = None
+    exception: BaseException | None = None
+
+#+END_SRC
+** Function try_format
+#+BEGIN_SRC python
+def try_format(obj: Any, include_opinionated: bool = True) -> FormattedOutput:
+    obj = "" if obj is None else obj
+    if (
+        formatter := get_formatter(
+            obj, include_opinionated=include_opinionated
+        )
+    ) is not None:
+        try:
+            mimetype, data = formatter(obj)
+            return FormattedOutput(mimetype=mimetype, data=data)
+        except BaseException as e:  # noqa: E722
+            # Catching base exception so we're robust to bugs in libraries
+            return FormattedOutput(
+                mimetype="text/plain",
+                data="",
+                traceback=traceback.format_exc(),
+                exception=e,
+            )
+
+    from marimo._runtime.context import ContextNotInitializedError, get_context
+
+    glbls = {}
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
+        pass
+    else:
+        glbls = ctx.globals
+
+    tb = None
+    try:
+        # convert the object to a string using the kernel globals;
+        # some libraries like duckdb introspect globals() ...
+        data = eval("str(obj)", glbls, {"obj": obj})
+    except Exception:
+        tb = traceback.format_exc()
+        return FormattedOutput(
+            mimetype="text/plain",
+            data="",
+            traceback=tb,
+        )
+    else:
+        return (
+            FormattedOutput(
+                mimetype="text/html",
+                data=plain_text(escape(data)).text,
+                traceback=tb,
+            )
+            if data
+            else FormattedOutput(
+                mimetype="text/plain",
+                data="",
+                traceback=tb,
+            )
+        )
+
+#+END_SRC
+** @mddoc: Function as_html
+#+BEGIN_SRC python
+@mddoc
+def as_html(value: object) -> Html:
+    """Convert a value to HTML that can be embedded into markdown
+
+    This function returns an `Html` object representing `value`. Use it to
+    embed values into Markdown or other HTML strings.
+
+    **Example.**
+
+    ```python3
+    import matplotlib.pyplot as plt
+    plt.plot([1, 2])
+    axis = plt.gca()
+    mo.md(
+        f\"\"\"
+        Here is a plot:
+
+        {mo.as_html(axis)}
+        \"\"\"
+    )
+    ```
+
+    **Args.**
+
+    - `value`: An object
+
+    **Returns.**
+
+    - An `Html` object
+    """
+    if isinstance(value, Html):
+        return value
+
+    formatter = get_formatter(value)
+    if formatter is None:
+        return Html(f"<span>{escape(str(value))}</span>")
+
+    mimetype, data = formatter(value)
+    return mime_to_html(mimetype, data)
+
+#+END_SRC
+** Function as_dom_node
+#+BEGIN_SRC python
+def as_dom_node(value: object) -> Html:
+    """
+    Similar to as_html, but allows for string, int, float, and bool values
+    to be passed through without being wrapped in an Html object.
+    """
+    if isinstance(value, (str, int, float, bool)):
+        return Html(escape(str(value)))
+
+    return as_html(value)
+
+#+END_SRC
+** Function mime_to_html
+#+BEGIN_SRC python
+def mime_to_html(mimetype: KnownMimeType, data: Any) -> Html:
+    if mimetype == "text/html":
+        # Using `as_html` to embed multiline HTML content
+        # into a multiline markdown string can break Python markdown's
+        # markdown processor (even if it is working "as intended", it's
+        # behavior is not what we want). If the markdown string is
+        # indentend, and the HTML is interpolated with an f-string,
+        # then only the first line of the interpolated HTML will be indented;
+        # this breaks Python markdown. Unfortunately, we can't indiscriminately
+        # flatten the HTML because whitespace matters for some elements,
+        # like pre tags. So for now we leave it to the formatter functions
+        # to choose whether or not to flatten their HTML
+        return Html(data)
+    elif mimetype == "text/plain":
+        # Flatten the HTML text to avoid indentation issues
+        # when interpolating into markdown/a multiline string
+        return Html(flatten_string(f"<span>{escape(data)}</span>"))
+    elif mimetype.startswith("image"):
+        return Html(flatten_string(f'<img src="{data}" alt="" />'))
+    elif mimetype == "application/json":
+        return Html(
+            flatten_string(json_output(json_data=json.loads(data)).text)
+        )
+
+    return mime_renderer(mimetype, data)
+
+#+END_SRC
+** @mddoc: Function plain
+#+BEGIN_SRC python
+@mddoc
+def plain(value: Any) -> Plain:
+    """
+    Wrap a value to indicate that it should be displayed
+    without any opinionated formatting.
+
+    This is the best way to opt out of marimo's
+    default dataframe rendering.
+
+    **Example.**
+
+    ```python
+    df = data.cars()
+    mo.plain(df)
+    ```
+
+    **Args.**
+
+    - `value`: Any value
+    """
+    return Plain(value)
+
+#+END_SRC
+** Class Plain
+#+BEGIN_SRC python
+class Plain:
+    """
+    Wrapper around a value to indicate that it should be displayed
+    without any opinionated formatting.
+    """
+
+    def __init__(self, child: Any):
+        self.child = child
+
+#+END_SRC
+** @mddoc: Function iframe
+#+BEGIN_SRC python
+@mddoc
+def iframe(html: str, *, width: str = "100%", height: str = "400px") -> Html:
+    """
+    Embed an HTML string in an iframe.
+
+    Scripts by default are not executed using `mo.as_html` or `mo.Html`,
+    so if you have a script tag (written as `<script></script>`),
+    you can use `mo.iframe` for scripts to be executed.
+
+    You may also want to use this function to display HTML content
+    that may contain styles that could interfere with the rest of the
+    page.
+
+    **Example.**
+
+    ```python
+    html = "<h1>Hello, world!</h1>"
+    mo.iframe(html)
+    ```
+
+    **Args.**
+
+    - `html`: An HTML string
+    """
+
+    return Html(
+        flatten_string(
+            h.iframe(
+                **src_or_src_doc(html),
+                onload="__resizeIframe(this)",
+                width=width,
+                height=height,
+            )
+        ),
+    )
+
+#+END_SRC
+* hypertext
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.hypertext
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/hypertext.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import weakref
+from typing import TYPE_CHECKING, Any, Literal, Optional, final
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.mime import MIME
+from marimo._output.rich_help import mddoc
+from marimo._output.utils import flatten_string
+
+#+END_SRC
+** Function _hypertext_cleanup
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from marimo._plugins.core.web_component import JSONType
+    from marimo._plugins.ui._core.ui_element import UIElement
+    from marimo._plugins.ui._impl.batch import batch as batch_plugin
+
+
+def _hypertext_cleanup(virtual_filenames: list[str]) -> None:
+    """Cleanup side-effects related to initialization of Html."""
+    from marimo._runtime.context import (
+        ContextNotInitializedError,
+        get_context,
+    )
+
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
+        return
+
+    if ctx is not None and ctx.virtual_files_supported:
+        for f in virtual_filenames:
+            ctx.virtual_file_registry.dereference(f)
+
+#+END_SRC
+** @mddoc: Class Html
+#+BEGIN_SRC python
+@mddoc
+class Html(MIME):
+    """A wrapper around HTML text that can be used as an output.
+
+    Output an `Html` object as the last expression of a cell to render it in
+    your app.
+
+    Use f-strings to embed Html objects as text into other HTML or markdown
+    strings. For example:
+
+    ```python3
+    hello_world = Html("<h2>Hello, World</h2>")
+    Html(
+        f'''
+        <h1>Hello, Universe!</h1>
+        {hello_world}
+        '''
+    )
+    ```
+
+    **Attributes.**
+
+    - `text`: a string of HTML
+
+    **Initialization Args.**
+
+    - `text`: a string of HTML
+
+    **Methods.**
+
+    - `batch`: convert this HTML element into a batched UI element
+    - `callout`: wrap this element in a callout
+    - `center`: center this element in the output area
+    - `right`: right-justify this element in the output area
+    """
+
+    _text: str
+
+    def __init__(self, text: str) -> None:
+        """Initialize the HTML element.
+
+        Subclasses of HTML MUST call this method.
+        """
+        self._text = text
+        # A list of the virtual file names referenced by this HTML element.
+        self._virtual_filenames: list[str] = []
+
+        from marimo._runtime.context import (
+            ContextNotInitializedError,
+            get_context,
+        )
+
+        try:
+            ctx = get_context()
+        except ContextNotInitializedError:
+            return
+
+        # Virtual File Refcounting
+        #
+        # HTML elements are responsible for maintaining the reference counts
+        # of virtual files: virtual files cannot be disposed while HTML
+        # elements reference them. For example, a user might cache HTML
+        # referencing a virtual file if they create it using functools.cache.
+        #
+        # flatten the text to make sure searching isn't broken by newlines
+        flat_text = flatten_string(self._text)
+        for virtual_filename in ctx.virtual_file_registry.filenames():
+            if virtual_filename in flat_text:
+                ctx.virtual_file_registry.reference(virtual_filename)
+                self._virtual_filenames.append(virtual_filename)
+
+        # Dereference virtual files on object destruction
+        finalizer = weakref.finalize(
+            self, _hypertext_cleanup, self._virtual_filenames
+        )
+        finalizer.atexit = False
+
+    @property
+    def text(self) -> str:
+        """A string of HTML representing this element."""
+        return self._text
+
+    @final
+    def _mime_(self) -> tuple[KnownMimeType, str]:
+        return ("text/html", self.text)
+
+    def __format__(self, spec: str) -> str:
+        """Format `self` as HTML text"""
+        del spec
+        return "".join([line.strip() for line in self.text.split("\n")])
+
+    @mddoc
+    def batch(self, **elements: UIElement[JSONType, object]) -> batch_plugin:
+        """Convert an HTML object with templated text into a UI element.
+
+        This method lets you create custom UI elements that are represented
+        by arbitrary HTML.
+
+        **Example.**
+
+        ```python3
+        user_info = mo.md(
+            '''
+            - What's your name?: {name}
+            - When were you born?: {birthday}
+            '''
+        ).batch(name=mo.ui.text(), birthday=mo.ui.date())
+        ```
+
+        In this example, `user_info` is a UI Element whose output is markdown
+        and whose value is a dict with keys `'name'` and '`birthday`'
+        (and values equal to the values of their corresponding elements).
+
+        **Args.**
+
+        - elements: the UI elements to interpolate into the HTML template.
+        """
+        from marimo._plugins.ui._impl.batch import batch as batch_plugin
+
+        return batch_plugin(html=self, elements=elements)
+
+    @mddoc
+    def center(self) -> Html:
+        """Center an item.
+
+        **Example.**
+
+        ```python3
+        mo.md("# Hello, world").center()
+        ```
+
+        **Returns.**
+
+        An `Html` object.
+        """
+        from marimo._plugins.stateless import flex
+
+        return flex.hstack([self], justify="center")
+
+    @mddoc
+    def right(self) -> Html:
+        """Right-justify.
+
+        **Example.**
+
+        ```python3
+        mo.md("# Hello, world").right()
+        ```
+
+        **Returns.**
+
+        An `Html` object.
+        """
+        from marimo._plugins.stateless import flex
+
+        return flex.hstack([self], justify="end")
+
+    @mddoc
+    def left(self) -> Html:
+        """Left-justify.
+
+        **Example.**
+
+        ```python3
+        mo.md("# Hello, world").left()
+        ```
+
+        **Returns.**
+
+        An `Html` object.
+        """
+        from marimo._plugins.stateless import flex
+
+        return flex.hstack([self], justify="start")
+
+    @mddoc
+    def callout(
+        self,
+        kind: Literal[
+            "neutral", "danger", "warn", "success", "info"
+        ] = "neutral",
+    ) -> Html:
+        """Create a callout containing this HTML element.
+
+        A callout wraps your HTML element in a raised box, emphasizing its
+        importance. You can style the callout for different situations with the
+        `kind` argument.
+
+        **Examples.**
+
+        ```python3
+        mo.md("Hooray, you did it!").callout(kind="success")
+        ```
+
+        ```python3
+        mo.md("It's dangerous to go alone!").callout(kind="warn")
+        ```
+        """
+
+        from marimo._plugins.stateless.callout import callout as _callout
+
+        return _callout(self, kind=kind)
+
+    @mddoc
+    def style(
+        self, style: Optional[dict[str, Any]] = None, **kwargs: Any
+    ) -> Html:
+        """Wrap an object in a styled container.
+
+        **Example.**
+
+        ```python
+        mo.md("...").style({"max-height": "300px", "overflow": "auto"})
+        mo.md("...").style(max_height="300px", overflow="auto")
+        ```
+
+        **Args.**
+
+        - `style`: an optional dict of CSS styles, keyed by property name
+        - `**kwargs`: CSS styles as keyword arguments
+        """
+        from marimo._plugins.stateless import style as _style
+
+        return _style.style(self, style=style, **kwargs)
+
+#+END_SRC
+** Function _js
+#+BEGIN_SRC python
+def _js(text: str) -> Html:
+    # TODO: interpolation of Python values to javascript
+    return Html("<script>" + text + "</script>")
+
+#+END_SRC
+* justify
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.justify
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/justify.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from marimo._output.formatting import as_html
+from marimo._output.hypertext import Html
+from marimo._output.rich_help import mddoc
+
+#+END_SRC
+** @mddoc: Function center
+#+BEGIN_SRC python
+@mddoc
+def center(item: object) -> Html:
+    """Center an item.
+
+    **Returns.**
+
+    A centered `Html` object.
+    """
+    return as_html(item).center()
+
+#+END_SRC
+** @mddoc: Function left
+#+BEGIN_SRC python
+@mddoc
+def left(item: object) -> Html:
+    """Left-justify an item.
+
+    **Returns.**
+
+    A left-justified `Html` object.
+    """
+    return as_html(item).left()
+
+#+END_SRC
+** @mddoc: Function right
+#+BEGIN_SRC python
+@mddoc
+def right(item: object) -> Html:
+    """Right-justify an item.
+
+    **Returns.**
+
+    A right-justified `Html` object.
+    """
+    return as_html(item).right()
+
+#+END_SRC
+* md
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.md
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/md.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from inspect import cleandoc
+from typing import Literal, Optional
+
+import markdown  # type: ignore
+
+from marimo._output.hypertext import Html
+from marimo._output.md_extensions.external_links import ExternalLinksExtension
+from marimo._output.md_extensions.iconify import IconifyExtension
+from marimo._output.rich_help import mddoc
+
+#+END_SRC
+** Assignment extension_configs
+#+BEGIN_SRC python
+extension_configs = {
+    "pymdownx.arithmatex": {
+        # Use "generic" mode, no preview, since we don't use MathJax
+        "preview": False,
+        "generic": True,
+        # The default "\\(" causes problems when passing
+        # html-escaped `md` output back into `md`
+        "tex_inline_wrap": ["||(", "||)"],
+        "tex_block_wrap": ["||[", "||]"],
+        # Wrap latex in a custom element
+        "block_tag": "marimo-tex",
+        "inline_tag": "marimo-tex",
+    },
+    "pymdownx.superfences": {
+        "disable_indented_code_blocks": True,
+        "css_class": "codehilite",
+    },
+    "footnotes": {
+        "UNIQUE_IDS": True,
+    },
+}
+
+#+END_SRC
+** Assignment MarkdownSize = Literal["sm", "base", "lg", "xl", "2xl"]
+#+BEGIN_SRC python
+MarkdownSize = Literal["sm", "base", "lg", "xl", "2xl"]
+
+#+END_SRC
+** Function _md
+#+BEGIN_SRC python
+def _md(
+    text: str,
+    apply_markdown_class: bool = True,
+    size: Optional[MarkdownSize] = None,
+) -> Html:
+    # cleandoc uniformly strips leading whitespace; useful for
+    # indented multiline strings
+    text = cleandoc(text)
+    # markdown.markdown appends a newline, hence strip
+    html_text = markdown.markdown(
+        text,
+        extensions=[
+            # Syntax highlighting
+            "codehilite",
+            # Markdown tables
+            "tables",
+            # LaTeX
+            "pymdownx.arithmatex",
+            # Subscripts and strikethrough
+            "pymdownx.tilde",
+            # Better code blocks
+            "pymdownx.superfences",
+            # Table of contents
+            # This adds ids to the HTML headers
+            "toc",
+            # Footnotes
+            "footnotes",
+            # Admonitions
+            "admonition",
+            # Sane lists, to include <ol start="n">
+            "sane_lists",
+            # Links
+            ExternalLinksExtension(),
+            # Iconify
+            IconifyExtension(),
+        ],
+        extension_configs=extension_configs,  # type: ignore[arg-type]
+    ).strip()
+    # replace <p> tags with <span> as HTML doesn't allow nested <div>s in <p>s
+    html_text = html_text.replace("<p>", '<span class="paragraph">').replace(
+        "</p>", "</span>"
+    )
+
+    if apply_markdown_class:
+        classes = ["markdown", "prose", "dark:prose-invert"]
+        if size is not None:
+            classes.append(f"prose-{size}")
+        return Html(f'<span class="{" ".join(classes)}">{html_text}</span>')
+    else:
+        return Html(html_text)
+
+#+END_SRC
+** @mddoc: Function md
+#+BEGIN_SRC python
+@mddoc
+def md(text: str) -> Html:
+    r"""Write markdown
+
+    This function takes a string of markdown as input and returns an Html
+    object. Output the object as the last expression of a cell to render
+    the markdown in your app.
+
+    **Interpolation.**
+
+    You can interpolate Python values into your markdown strings, for example
+    using f-strings. Html objects and UI elements can be directly interpolated.
+    For example:
+
+    ```python3
+    text_input = mo.ui.text()
+    md(f"Enter some text: {text_input}")
+    ```
+
+    For other objects, like plots, use marimo's `as_html` method to embed
+    them in markdown:
+
+    ```python3
+    import matplotlib.pyplot as plt
+
+    plt.plot([1, 2])
+    axis = plt.gca()
+    md(f"Here's a plot: {mo.as_html(axis)}")
+    ```
+
+    **LaTeX.**
+
+    Enclose LaTeX in single '\$' signs for inline math, and double '\$\$' for
+    display math or square brackets for display math. (Use raw strings,
+    prefixed with an "r", to use single backslashes.) For example:
+
+    ```python3
+    mo.md(
+        r'''
+        The exponential function $f(x) = e^x$ can be represented as
+
+        \[
+            f(x) = 1 + x + \frac{x^2}{2!} + \frac{x^3}{3!} + \ldots.
+        \]
+        '''
+    )
+    ```
+    renders:
+
+    The exponential function $f(x) = e^x$ can be represented as
+
+    $$
+    f(x) = 1 + x + \frac{x^2}{2!} + \frac{x^3}{3!} + \ldots.
+    $$
+
+
+    **Args**:
+
+    - `text`: a string of markdown
+
+    **Returns**:
+
+    - An `Html` object.
+    """
+    return _md(text)
+
+#+END_SRC
+* mime
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.mime
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/mime.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+
+from marimo._messaging.mimetypes import KnownMimeType
+
+#+END_SRC
+** @dataclass: Class MIME
+#+BEGIN_SRC python
+@dataclass
+class MIME(Protocol):
+    """Protocol for instantiating objects using marimo's media viewer.
+
+    To implement this protocol, a class needs to define
+    just one method, _mime_.
+    """
+
+    # TODO(akshayka): Single source of truth for supported mimetypes. The
+    # documented types below are copied from the frontend
+    def _mime_(self) -> tuple[KnownMimeType, str]:
+        """Return a tuple (mimetype, data)
+
+        Return a mimetype and the string data to instantiate it in marimo's
+        media viewer.
+
+        The supported mimetypes are:
+          application/json
+          application/vnd.marimo+error
+          application/vnd.marimo+traceback
+          application/vnd.vega.v5+json
+          application/vnd.vegalite.v5+json
+          image/png
+          image/svg+xml
+          image/tiff
+          image/avif
+          image/bmp
+          image/gif
+          image/jpeg
+          video/mp4
+          video/mpeg
+          text/html
+          text/plain
+        """
+        raise NotImplementedError
+
+#+END_SRC
+* marimo backend for matplotlib
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.mpl
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/mpl.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""marimo backend for matplotlib
+
+Adapted from
+
+matplotlib/matplotlib/blob/main/lib/matplotlib/backends/backend_template.py
+
+and
+
+https://stackoverflow.com/questions/58153024/matplotlib-how-to-create-original-backend
+"""
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+from __future__ import annotations
+
+import base64
+import io
+from typing import Optional
+
+import matplotlib.pyplot as plt
+from matplotlib._pylab_helpers import Gcf
+from matplotlib.backend_bases import (
+    FigureCanvasBase,
+    FigureManagerBase,
+)
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+from marimo._messaging.cell_output import CellChannel
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._messaging.ops import CellOp
+from marimo._output.utils import build_data_url
+
+#+END_SRC
+** Assignment FigureCanvas = FigureCanvasAgg
+#+BEGIN_SRC python
+FigureCanvas = FigureCanvasAgg
+
+#+END_SRC
+** Function close_figures
+#+BEGIN_SRC python
+def close_figures() -> None:
+    if Gcf.get_all_fig_managers():
+        plt.close("all")
+
+#+END_SRC
+** Function _internal_show
+#+BEGIN_SRC python
+def _internal_show(canvas: FigureCanvasBase) -> None:
+    buf = io.BytesIO()
+    buf.seek(0)
+    canvas.figure.savefig(buf, format="png", bbox_inches="tight")  # type: ignore[attr-defined]
+    plt.close(canvas.figure)
+    mimetype: KnownMimeType = "image/png"
+    plot_bytes = base64.b64encode(buf.getvalue())
+    CellOp.broadcast_console_output(
+        channel=CellChannel.MEDIA,
+        mimetype=mimetype,
+        data=build_data_url(mimetype=mimetype, data=plot_bytes),
+        cell_id=None,
+        status=None,
+    )
+
+#+END_SRC
+** Class FigureManager
+#+BEGIN_SRC python
+class FigureManager(FigureManagerBase):
+    def show(self) -> None:
+        _internal_show(self.canvas)
+
+#+END_SRC
+** Function show
+#+BEGIN_SRC python
+def show(*, block: Optional[bool] = None) -> None:
+    del block
+    for manager in Gcf.get_all_fig_managers():
+        _internal_show(manager.canvas)
+
+#+END_SRC
+* rich_help
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.rich_help
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/rich_help.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import inspect
+from typing import (
+    Any,
+    Callable,
+    Generic,
+    Optional,
+    Protocol,
+    TypeVar,
+    cast,
+    runtime_checkable,
+)
+
+from marimo._utils.format_signature import format_signature
+
+#+END_SRC
+** Assignment _WRAP_WIDTH = 72
+#+BEGIN_SRC python
+_WRAP_WIDTH = 72
+
+#+END_SRC
+** Function _format_parameter
+#+BEGIN_SRC python
+def _format_parameter(parameter: inspect.Parameter) -> str:
+    annotation = (
+        ""
+        if parameter.annotation == inspect.Parameter.empty
+        else ": " + cast(str, parameter.annotation)
+    )
+    default = (
+        ""
+        if parameter.default == inspect.Parameter.empty
+        else (
+            f" = '{str(parameter.default)}'"
+            if isinstance(parameter.default, str)
+            else f" = {str(parameter.default)}"
+        )
+    )
+    return parameter.name + annotation + default
+
+#+END_SRC
+** Function _get_signature
+#+BEGIN_SRC python
+def _get_signature(obj: Any) -> str:
+    name = cast(str, obj.__name__)
+    try:
+        signature = inspect.signature(obj)
+    except Exception:
+        # classes with fancy metaclasses, like TypedDict, can throw
+        # an exception
+        return name + ": " + str(type(obj))
+
+    parameters = ", ".join(
+        [
+            _format_parameter(parameter)
+            for parameter in signature.parameters.values()
+        ]
+    )
+    if inspect.isclass(obj):
+        signature_text = name + "(" + parameters + ")"
+        return format_signature("class ", signature_text, width=_WRAP_WIDTH)
+    else:
+        return_annotation = (
+            " -> " + signature.return_annotation
+            if (
+                signature.return_annotation != inspect.Signature.empty
+                and signature.return_annotation
+            )
+            else ""
+        ) + ":"
+        signature_text = (
+            name + "(" + parameters + ")" + cast(str, return_annotation)
+        )
+        return format_signature("def ", signature_text, width=_WRAP_WIDTH)
+
+#+END_SRC
+** Function _doc_with_signature
+#+BEGIN_SRC python
+def _doc_with_signature(obj: Any) -> str:
+    """Return docstring with its signature prepended."""
+    signature = "```python\n" + _get_signature(obj) + "\n```"
+    return (
+        signature + "\n\n" + inspect.cleandoc(cast(str, obj.__doc__))
+        if obj.__doc__ is not None
+        else signature
+    )
+
+#+END_SRC
+** Assignment T = TypeVar("T", bound=Callable[..., Any])
+#+BEGIN_SRC python
+T = TypeVar("T", bound=Callable[..., Any])
+
+#+END_SRC
+** @runtime_checkable: Class RichHelp
+#+BEGIN_SRC python
+@runtime_checkable
+class RichHelp(Protocol, Generic[T]):
+    """Protocol to provide a class or function docstring formatted as markdown.
+
+    Implement the protocol by implementing a `_rich_help_` static method, which
+    should render a Markdown string documenting the class. For example:
+
+    ```python3
+    class MyClass:
+        \"\"\"**MyClass.**
+
+        A class implementing the `RichHelp` protocol.
+        \"\"\"
+
+        @staticmethod
+        def _rich_help_() -> Optional[str]:
+            return MyClass.__doc__
+    ```
+    """
+
+    @staticmethod
+    def _rich_help_() -> Optional[str]:
+        return _doc_with_signature(RichHelp)
+
+    __call__: T
+
+#+END_SRC
+** Function mddoc
+#+BEGIN_SRC python
+def mddoc(obj: T) -> T:
+    """Adds a `_rich_help_` method to the passed in object.
+
+    Returns `obj`, with modification to implement the `RichHelp` protocol.
+    """
+    rich_help = cast(RichHelp[T], obj)
+    rich_help._rich_help_ = lambda: _doc_with_signature(  # type: ignore[method-assign]  # noqa: E501
+        obj
+    )
+    # cast back to original type, so type-hinters provide helpful information
+    return cast(T, rich_help)
+
+#+END_SRC
+* show_code
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.show_code
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/show_code.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import re
+
+from marimo._output.formatting import as_html
+from marimo._output.hypertext import Html
+from marimo._plugins.stateless.flex import vstack
+from marimo._plugins.ui._impl.input import code_editor
+from marimo._runtime.context import get_context
+from marimo._runtime.context.types import ContextNotInitializedError
+
+#+END_SRC
+** Function substitute_show_code_with_arg
+#+BEGIN_SRC python
+def substitute_show_code_with_arg(code: str) -> str:
+    pattern = r"mo\.show_code\((.*)\)"
+    return re.sub(pattern, r"\1", code, flags=re.DOTALL).strip()
+
+#+END_SRC
+** Function show_code
+#+BEGIN_SRC python
+def show_code(output: object = None) -> Html:
+    """Display an output along with the code of the current cell.
+
+    Use `mo.show_code` to show the code of the current cell along with
+    the cell's output. This is useful if you want a cell's code to
+    appear in the app preview or when running the notebook as an app
+    with `marimo run`.
+
+    In the displayed code, all occurrences of mo.show_code(...) will be
+    replaced with ...
+
+    Show code that produces the output `factorial(5)`:
+
+    ```python
+    def factorial(n: int) -> int:
+        if n == 0:
+            return 1
+        return n * factorial(n - 1)
+
+
+    mo.show_code(factorial(5))
+    ```
+
+    Show code of a cell, without an output:
+
+    ```python
+    def factorial(n: int) -> int:
+        if n == 0:
+            return 1
+        return n * factorial(n - 1)
+
+
+    mo.show_code()
+    ```
+
+    **Args:**
+
+    - output: the output to display above the cell's code; omit the output
+      to just show the cell's code, without an output.
+
+    **Returns:**
+
+    HTML of the `output` arg displayed with its code.
+    """
+    try:
+        context = get_context()
+    except ContextNotInitializedError:
+        return as_html(output)
+
+    cell_id = context.cell_id
+    if cell_id is None:
+        return as_html(output)
+
+    cell = context.graph.cells[cell_id]
+    code = substitute_show_code_with_arg(cell.code)
+
+    if output is not None:
+        return vstack(
+            [
+                as_html(output),
+                code_editor(value=code, disabled=True, min_height=1),
+            ]
+        )
+    else:
+        return code_editor(value=code, disabled=True, min_height=1)
+
+#+END_SRC
+* utils
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.utils
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/utils.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import urllib.parse
+from typing import Optional, Union
+
+from marimo._messaging.mimetypes import KnownMimeType
+
+#+END_SRC
+** Function build_data_url
+#+BEGIN_SRC python
+def build_data_url(mimetype: KnownMimeType, data: bytes) -> str:
+    assert mimetype is not None
+    # `data` must be base64 encoded
+    str_repr = data.decode("utf-8").replace("\n", "")
+    return f"data:{mimetype};base64,{str_repr}"
+
+#+END_SRC
+** Function flatten_string
+#+BEGIN_SRC python
+def flatten_string(text: str) -> str:
+    return "".join([line.strip() for line in text.split("\n")])
+
+#+END_SRC
+** Function create_style
+#+BEGIN_SRC python
+def create_style(
+    pairs: dict[str, Union[str, int, float, None]],
+) -> Optional[str]:
+    if not pairs:
+        return None
+
+    return ";".join([f"{k}: {v}" for k, v in pairs.items() if v is not None])
+
+#+END_SRC
+** Function uri_encode_component
+#+BEGIN_SRC python
+def uri_encode_component(code: str) -> str:
+    """Equivalent to `encodeURIComponent` in JavaScript."""
+    return urllib.parse.quote(code, safe="~()*!.'")
+
+#+END_SRC
+** Function normalize_dimension
+#+BEGIN_SRC python
+def normalize_dimension(value: Union[int, float, str, None]) -> Optional[str]:
+    """Normalize dimension value to CSS string.
+
+    Handles:
+    - Integers (converted to px)
+    - Strings (passed through if they have units, converted to px if just number)
+    - None (returns None)
+    """
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return f"{value}px"
+    if isinstance(value, float):
+        return f"{value}px"
+    if isinstance(value, str):
+        # If string is just a number, treat as percentage
+        if value.isdigit():
+            return f"{value}px"
+        return value
+    raise ValueError(f"Invalid dimension value: {value}")
+
+#+END_SRC
+* data
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.data
+:END:
+** data
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.data.data
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/data/data.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import base64
+import io
+from typing import Union
+
+from marimo._plugins.core.media import is_data_empty
+from marimo._runtime.virtual_file import (
+    EMPTY_VIRTUAL_FILE,
+    VirtualFile,
+    VirtualFileLifecycleItem,
+)
+
+#+END_SRC
+*** Function pdf
+#+BEGIN_SRC python
+def pdf(data: bytes) -> VirtualFile:
+    """Create a virtual file from a PDF.
+
+    **Args.**
+
+    - data: PDF data in bytes
+
+    **Returns.**
+
+    A `VirtualFile` object.
+    """
+    item = VirtualFileLifecycleItem(ext="pdf", buffer=data)
+    item.add_to_cell_lifecycle_registry()
+    return item.virtual_file
+
+#+END_SRC
+*** Function image
+#+BEGIN_SRC python
+def image(data: bytes, ext: str = "png") -> VirtualFile:
+    """Create a virtual file from an image.
+
+    **Args.**
+
+    - data: Image data in bytes
+
+    **Returns.**
+
+    A `VirtualFile` object.
+    """
+    item = VirtualFileLifecycleItem(ext=ext, buffer=data)
+    item.add_to_cell_lifecycle_registry()
+    return item.virtual_file
+
+#+END_SRC
+*** Function audio
+#+BEGIN_SRC python
+def audio(data: bytes, ext: str = "wav") -> VirtualFile:
+    """Create a virtual file from audio.
+
+    **Args.**
+
+    - data: Audio data in bytes
+
+    **Returns.**
+
+    A `VirtualFile` object.
+    """
+    item = VirtualFileLifecycleItem(ext=ext, buffer=data)
+    item.add_to_cell_lifecycle_registry()
+    return item.virtual_file
+
+#+END_SRC
+*** Function csv
+#+BEGIN_SRC python
+def csv(data: Union[str, bytes, io.BytesIO]) -> VirtualFile:
+    """Create a virtual file for CSV data.
+
+    **Args.**
+
+    - data: CSV data in bytes, or string representing a data URL, external URL
+        or a Pandas DataFrame
+
+    **Returns.**
+
+    A `VirtualFile` object.
+    """
+    return any_data(data, ext="csv")  # type: ignore
+
+#+END_SRC
+*** Function json
+#+BEGIN_SRC python
+def json(data: Union[str, bytes, io.BytesIO]) -> VirtualFile:
+    """Create a virtual file for JSON data.
+
+    **Args.**
+
+    - data: JSON data in bytes, or string representing a data URL, external URL
+        or a Pandas DataFrame
+
+    **Returns.**
+
+    A `VirtualFile` object.
+    """
+    return any_data(data, ext="json")  # type: ignore
+
+#+END_SRC
+*** Function js
+#+BEGIN_SRC python
+def js(data: str) -> VirtualFile:
+    """Create a virtual file for JavaScript data.
+
+    **Args.**
+
+    - data: JavaScript data as a string
+
+    **Returns.**
+
+    A `VirtualFile` object.
+    """
+    return any_data(data, ext="js")
+
+#+END_SRC
+*** Function html
+#+BEGIN_SRC python
+def html(data: str) -> VirtualFile:
+    """Create a virtual file for HTML data.
+
+    **Args.**
+
+    - data: HTML data as a string
+
+    **Returns.**
+
+    A `VirtualFile` object.
+    """
+    return any_data(data, ext="html")
+
+#+END_SRC
+*** Function any_data
+#+BEGIN_SRC python
+def any_data(data: Union[str, bytes, io.BytesIO], ext: str) -> VirtualFile:
+    """Create a virtual file from any data.
+
+    It can be a string, bytes, or a file-like object.
+    For external URLs, these are passed through as-is.
+
+    **Args.**
+
+    - data: Data in bytes, or string representing a data URL or external URL
+    - ext: File extension
+
+    **Returns.**
+
+    A `VirtualFile` object.
+    """
+    if data is None:
+        return EMPTY_VIRTUAL_FILE
+
+    if is_data_empty(data):
+        return EMPTY_VIRTUAL_FILE
+
+    # Base64 encoded data
+    if isinstance(data, str) and data.startswith("data:"):
+        base64str = data.split(",")[1]
+        buffer = base64.b64decode(base64str)
+        item = VirtualFileLifecycleItem(ext=ext, buffer=buffer)
+        item.add_to_cell_lifecycle_registry()
+        return item.virtual_file
+
+    # URL
+    if isinstance(data, str) and data.startswith("http"):
+        return VirtualFile.from_external_url(data)
+
+    # Bytes
+    if isinstance(data, bytes):
+        item = VirtualFileLifecycleItem(ext=ext, buffer=data)
+        item.add_to_cell_lifecycle_registry()
+        return item.virtual_file
+
+    # String
+    if isinstance(data, str):
+        item = VirtualFileLifecycleItem(ext=ext, buffer=data.encode("utf-8"))
+        item.add_to_cell_lifecycle_registry()
+        return item.virtual_file
+
+    # BytesIO
+    if isinstance(data, io.BytesIO):
+        # clone before reading, so we don't consume the stream
+        buffer = io.BytesIO(data.getvalue()).read()
+        item = VirtualFileLifecycleItem(ext=ext, buffer=buffer)
+        item.add_to_cell_lifecycle_registry()
+        return item.virtual_file
+
+    raise ValueError(f"Unsupported data type: {type(data)}")
+
+#+END_SRC
+*** Function from_data_uri
+#+BEGIN_SRC python
+# Format: data:mime_type;base64,data
+def from_data_uri(data: str) -> tuple[str, bytes]:
+    assert isinstance(data, str)
+    assert data.startswith("data:")
+    mime_type, data = data.split(",", 1)
+    # strip data: and ;base64
+    mime_type = mime_type.split(";")[0][5:]
+    return mime_type, base64.b64decode(data)
+
+#+END_SRC
+* formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters
+:END:
+** __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/__init__.py
+:END:
+*** Comment
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+#+END_SRC
+** altair_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.altair_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/altair_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING
+
+from marimo._config.config import Theme
+from marimo._messaging.mimetypes import KnownMimeType, MimeBundleOrTuple
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._plugins.core.media import io_to_data_url
+
+#+END_SRC
+*** Class AltairFormatter
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    import altair  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+
+class AltairFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "altair"
+
+    def register(self) -> None:
+        import altair  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        from marimo._output import formatting
+        from marimo._plugins.ui._impl.charts.altair_transformer import (
+            register_transformers,
+        )
+
+        # add marimo transformers
+        register_transformers()
+
+        @formatting.formatter(altair.TopLevelMixin)
+        def _show_chart(chart: altair.Chart) -> tuple[KnownMimeType, str]:
+            import altair as alt
+
+            # Try to get the _repr_mimebundle_ method from the chart
+            # If its HTML, we want to handle this ourselves
+            # if its svg, vega, or png, then we want to pass that instead
+            # because that means the user has configured the that renderer
+            mimebundle: MimeBundleOrTuple = {}
+            try:
+                mimebundle = chart._repr_mimebundle_() or {}  # type: ignore
+            except Exception:
+                pass
+
+            # Handle where there are multiple mime types
+            # return as a mimebundle
+            if len(mimebundle) > 1:
+                return (
+                    "application/vnd.marimo+mimebundle",
+                    json.dumps(mimebundle),
+                )
+
+            # Handle non-HTML mime types
+            non_html_mime_types: list[KnownMimeType] = [
+                "image/svg+xml",
+                "image/png",
+                "application/vnd.vega.v5+json",
+                "application/vnd.vegalite.v5+json",
+            ]
+            for mime_type in non_html_mime_types:
+                if mime_type in mimebundle:
+                    mime_response = mimebundle[mime_type]
+                    if isinstance(mime_response, bytes):
+                        data_url = io_to_data_url(mime_response, mime_type)
+                        return (mime_type, data_url or "")
+                    if isinstance(mime_response, str):
+                        return mime_type, mime_response
+                    return mime_type, json.dumps(mime_response)
+
+            # If vegafusion is enabled, just wrap in altair_chart
+            if alt.data_transformers.active.startswith("vegafusion"):
+                return (
+                    "application/vnd.vega.v5+json",
+                    chart.to_json(format="vega"),
+                )
+
+            # If the user has not set the max_rows option, we set it to 20_000
+            # since we are able to handle the larger sizes (default is 5000)
+            if "max_rows" not in alt.data_transformers.options:
+                alt.data_transformers.options["max_rows"] = 20_000
+
+            chart = _apply_embed_options(chart)
+
+            # Return the chart as a vega-lite chart with embed options
+            return ("application/vnd.vegalite.v5+json", chart.to_json())
+
+    def apply_theme(self, theme: Theme) -> None:
+        import altair as alt  # type: ignore
+
+        alt.themes.enable("dark" if theme == "dark" else "default")  # type: ignore
+
+#+END_SRC
+*** Function _apply_embed_options
+#+BEGIN_SRC python
+# This is only needed since it seems that altair does not
+# handle this internally.
+# https://github.com/marimo-team/marimo/issues/2302
+def _apply_embed_options(chart: altair.Chart) -> altair.Chart:
+    import altair as alt
+
+    # Respect user-set embed options
+    # Note:
+    # The python key is `embed_options`
+    # The javascript key is `embedOptions`
+    embed_options = alt.renderers.options.get("embed_options", {})
+    prev_usermeta = {} if alt.Undefined is chart.usermeta else chart.usermeta
+    chart["usermeta"] = {
+        **prev_usermeta,
+        "embedOptions": {
+            **embed_options,
+            **prev_usermeta.get("embedOptions", {}),
+        },
+    }
+    return chart
+
+#+END_SRC
+** anywidget_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.anywidget_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/anywidget_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._plugins.ui._impl.from_anywidget import from_anywidget
+
+#+END_SRC
+*** Class AnyWidgetFormatter
+#+BEGIN_SRC python
+class AnyWidgetFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "anywidget"
+
+    def register(self) -> None:
+        import anywidget  # type: ignore [import-not-found]
+
+        from marimo._output import formatting
+
+        @formatting.formatter(anywidget.AnyWidget)
+        def _from(lmap: anywidget.AnyWidget) -> tuple[KnownMimeType, str]:
+            return from_anywidget(lmap)._mime_()
+
+#+END_SRC
+** arviz_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.arviz_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/arviz_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+
+#+END_SRC
+*** Class ArviZFormatter
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt  # type: ignore
+    import numpy as np  # type: ignore
+    from matplotlib.figure import Figure  # type: ignore
+
+
+class ArviZFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "arviz"
+
+    def register(self) -> None:
+        import arviz as az  # type: ignore
+        import matplotlib.pyplot as plt  # type: ignore
+        import numpy as np  # type: ignore
+
+        from marimo._output import formatting
+
+        @formatting.formatter(az.InferenceData)  # type: ignore
+        def _format_inference_data(
+            data: az.InferenceData,  # type: ignore
+        ) -> tuple[KnownMimeType, str]:
+            return ("text/plain", str(data))
+
+        @formatting.formatter(np.ndarray)  # type: ignore
+        def _format_ndarray(
+            arr: np.ndarray,  # type: ignore
+        ) -> tuple[KnownMimeType, str]:
+            return self.format_numpy_axes(arr)
+
+        @formatting.formatter(plt.Figure)  # type: ignore
+        def _format_figure(
+            fig: plt.Figure,  # type: ignore
+        ) -> tuple[KnownMimeType, str]:
+            return self.format_figure(fig)
+
+    @classmethod
+    def format_numpy_axes(cls, arr: np.ndarray) -> tuple[KnownMimeType, str]:  # type: ignore
+        import matplotlib.pyplot as plt  # type: ignore
+
+        # Check if array contains axes (to render plots) or not
+        if arr.dtype == object and cls._contains_axes(arr):
+            fig = plt.gcf()
+            if fig.get_axes():  # Only process if there are axes to show
+                axes_info = cls._get_axes_info(fig)
+                plot_html = cls._get_plot_html(fig)
+                plt.close(fig)  # Safely close the figure after saving
+                combined_html = f"<pre>{axes_info}</pre><br>{plot_html}"
+                return ("text/html", combined_html)
+        # Fallback to plain text if no axes or plot are present
+        return ("text/plain", str(arr))
+
+    @staticmethod
+    def _contains_axes(arr: np.ndarray) -> bool:  # type: ignore
+        from matplotlib.axes import Axes  # type: ignore
+
+        """
+        Check if the numpy array contains any matplotlib Axes objects.
+        To ensure performance for large arrays, we limit the check to the
+        first 100 items. This should be sufficient for most use cases
+        while avoiding excessive computation time.
+        """
+        # Cap the number of items to check for performance reasons
+        MAX_ITEMS_TO_CHECK = 100
+
+        if arr.ndim == 1:
+            # For 1D arrays, check up to MAX_ITEMS_TO_CHECK items
+            return any(
+                isinstance(item, Axes) for item in arr[:MAX_ITEMS_TO_CHECK]
+            )
+        elif arr.ndim == 2:
+            # For 2D arrays, check up to MAX_ITEMS_TO_CHECK items in total
+            items_checked = 0
+            for row in arr:
+                for item in row:
+                    if isinstance(item, Axes):
+                        return True
+                    items_checked += 1
+                    if items_checked >= MAX_ITEMS_TO_CHECK:
+                        return False
+        return False
+
+    @staticmethod
+    def _get_axes_info(fig: Figure) -> str:  # type: ignore
+        axes_info = []
+        for _, ax in enumerate(fig.axes):
+            bbox = ax.get_position()
+            axes_info.append(
+                f"Axes({bbox.x0:.3f},{bbox.y0:.3f};"
+                f"{bbox.width:.3f}x{bbox.height:.3f})"
+            )
+        return "\n".join(axes_info)
+
+    @staticmethod
+    def _get_plot_html(fig: Figure) -> str:  # type: ignore
+        import base64
+        from io import BytesIO
+
+        buf = BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")  # Retain default
+        data = base64.b64encode(buf.getbuffer()).decode("ascii")
+        return f"<img src='data:image/png;base64,{data}'/>"
+
+    @classmethod
+    def format_figure(cls, fig: Figure) -> tuple[KnownMimeType, str]:  # type: ignore
+        import matplotlib.pyplot as plt  # type: ignore
+
+        axes_info = cls._get_axes_info(fig)
+        plot_html = cls._get_plot_html(fig)
+        plt.close(fig)
+        combined_html = f"<pre>{axes_info}</pre><br>{plot_html}"
+        return ("text/html", combined_html)
+
+#+END_SRC
+** bokeh_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.bokeh_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/bokeh_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Optional
+
+from marimo._config.config import Theme
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.builder import h
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._output.formatters.utils import src_or_src_doc
+from marimo._output.utils import flatten_string
+
+#+END_SRC
+*** Class BokehFormatter
+#+BEGIN_SRC python
+class BokehFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "bokeh"
+
+    def register(self) -> None:
+        import bokeh.models  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        from marimo._output import formatting
+
+        @formatting.formatter(bokeh.models.Model)
+        def _show_plot(
+            plot: bokeh.models.Model,
+        ) -> tuple[KnownMimeType, str]:
+            import bokeh.embed  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+            import bokeh.resources  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+            from bokeh.io import (  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+                curdoc,
+            )
+
+            current_theme = curdoc().theme
+            html_content = bokeh.embed.file_html(
+                plot, bokeh.resources.CDN, theme=current_theme
+            )
+
+            # Try to get the background fill color
+            background_fill_color: Optional[str] = None
+            try:
+                attrs = current_theme._json.get("attrs", {})
+                background_fill_color = attrs.get("BaseColorBar", {}).get(
+                    "background_fill_color"
+                ) or attrs.get("Plot", {}).get("background_fill_color")
+            except Exception:
+                pass
+
+            # Maybe add <style> to the content
+            if background_fill_color is not None:
+                style_to_add = (
+                    "<style>"
+                    f"body{{background-color:{background_fill_color}}}"
+                    "</style>"
+                )
+                # Add above the </head> tag
+                html_content = html_content.replace(
+                    "</head>", style_to_add + "</head>"
+                )
+
+            return (
+                "text/html",
+                flatten_string(
+                    h.iframe(
+                        **src_or_src_doc(html_content),
+                        onload="__resizeIframe(this)",
+                        style="width: 100%",
+                    )
+                ),
+            )
+
+    def apply_theme(self, theme: Theme) -> None:
+        from bokeh.io import curdoc  # type: ignore
+
+        curdoc().theme = "dark_minimal" if theme == "dark" else None  # type: ignore
+
+#+END_SRC
+** cell
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.cell
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/cell.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._ast.cell import Cell
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output import formatting
+from marimo._output.formatters.formatter_factory import FormatterFactory
+
+#+END_SRC
+*** Class CellFormatter
+#+BEGIN_SRC python
+class CellFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> None:
+        return None
+
+    def register(self) -> None:
+        @formatting.formatter(Cell)
+        def _format_cell(cell: Cell) -> tuple[KnownMimeType, str]:
+            return cell._help()._mime_()
+
+#+END_SRC
+** df_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.df_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/df_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo import _loggers
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._plugins.ui._impl.table import table
+
+#+END_SRC
+*** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+*** Function include_opinionated
+#+BEGIN_SRC python
+def include_opinionated() -> bool:
+    from marimo._runtime.context import (
+        get_context,
+        runtime_context_installed,
+    )
+
+    if runtime_context_installed():
+        ctx = get_context()
+        return ctx.user_config["display"]["dataframes"] == "rich"
+    return True
+
+#+END_SRC
+*** Class PolarsFormatter
+#+BEGIN_SRC python
+class PolarsFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "polars"
+
+    def register(self) -> None:
+        import polars as pl
+
+        from marimo._output import formatting
+
+        if include_opinionated():
+
+            @formatting.opinionated_formatter(pl.DataFrame)
+            def _show_marimo_dataframe(
+                df: pl.DataFrame,
+            ) -> tuple[KnownMimeType, str]:
+                try:
+                    return table(df, selection=None, pagination=True)._mime_()
+                except Exception as e:
+                    LOGGER.warning("Failed to format DataFrame: %s", e)
+                    return ("text/html", df._repr_html_())
+
+#+END_SRC
+*** Class PyArrowFormatter
+#+BEGIN_SRC python
+class PyArrowFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "pyarrow"
+
+    def register(self) -> None:
+        import pyarrow as pa
+
+        from marimo._output import formatting
+
+        if include_opinionated():
+
+            @formatting.opinionated_formatter(pa.Table)
+            def _show_marimo_dataframe(
+                df: pa.Table,
+            ) -> tuple[KnownMimeType, str]:
+                return table(df, selection=None, pagination=True)._mime_()
+
+#+END_SRC
+** formatter_factory
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.formatter_factory
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/formatter_factory.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import abc
+from typing import Callable, Optional
+
+from marimo import _loggers
+from marimo._config.config import Theme
+
+#+END_SRC
+*** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+*** Class FormatterFactory
+#+BEGIN_SRC python
+# Abstract base class for formatters that are installed at runtime.
+class FormatterFactory(abc.ABC):
+    @staticmethod
+    @abc.abstractmethod
+    def package_name() -> Optional[str]:
+        """Name of third-party package that this formatter is for
+
+        **Important**: should not actually import the package, since that will
+        slow down all imports.
+
+        Return `None` if the formatter isn't for any specific package.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def register(self) -> Callable[[], None] | None:
+        """Registers formatters.
+
+        Formatters can be registered using the formatters.formatter decorator.
+
+        Optionally returns a handle to undo side-effects, such as module
+        patches.
+        """
+        raise NotImplementedError
+
+    def apply_theme(self, theme: Theme) -> None:
+        """
+        Apply the theme (light/dark) to third party libraries.
+        If the theme is set to "system", then we fallback to "light".
+
+        Args:
+            theme: The theme to apply.
+        """
+        del theme
+        return
+
+    def apply_theme_safe(self, theme: Theme) -> None:
+        """
+        Apply the theme (light/dark) to third party libraries.
+        If the theme is set to "system", then we fallback to "light".
+
+        Args:
+            theme: The theme to apply.
+        """
+        try:
+            self.apply_theme(theme)
+        except Exception as e:
+            LOGGER.error(
+                f"Error applying theme {theme} fro {self.package_name()}: {e}"
+            )
+
+#+END_SRC
+** formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/formatters.py
+:END:
+*** Assignment THIRD_PARTY_FACTORIES
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import sys
+from typing import Any, Callable, Sequence
+
+from marimo._config.config import Theme
+from marimo._output.formatters.altair_formatters import AltairFormatter
+from marimo._output.formatters.anywidget_formatters import AnyWidgetFormatter
+from marimo._output.formatters.arviz_formatters import ArviZFormatter
+from marimo._output.formatters.bokeh_formatters import BokehFormatter
+from marimo._output.formatters.cell import CellFormatter
+from marimo._output.formatters.df_formatters import (
+    PolarsFormatter,
+    PyArrowFormatter,
+)
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._output.formatters.holoviews_formatters import HoloViewsFormatter
+from marimo._output.formatters.ipython_formatters import IPythonFormatter
+from marimo._output.formatters.ipywidgets_formatters import IPyWidgetsFormatter
+from marimo._output.formatters.leafmap_formatters import LeafmapFormatter
+from marimo._output.formatters.lets_plot_formatters import LetsPlotFormatter
+from marimo._output.formatters.matplotlib_formatters import MatplotlibFormatter
+from marimo._output.formatters.pandas_formatters import PandasFormatter
+from marimo._output.formatters.panel_formatters import PanelFormatter
+from marimo._output.formatters.plotly_formatters import PlotlyFormatter
+from marimo._output.formatters.pyecharts_formatters import PyechartsFormatter
+from marimo._output.formatters.pygwalker_formatters import PygWalkerFormatter
+from marimo._output.formatters.seaborn_formatters import SeabornFormatter
+from marimo._output.formatters.structures import StructuresFormatter
+from marimo._output.formatters.sympy_formatters import SympyFormatter
+from marimo._output.formatters.tqdm_formatters import TqdmFormatter
+
+# Map from formatter factory's package name to formatter, for third-party
+# modules. These formatters will be registered if and when their associated
+# packages are imported.
+THIRD_PARTY_FACTORIES: dict[str, FormatterFactory] = {
+    AltairFormatter.package_name(): AltairFormatter(),
+    MatplotlibFormatter.package_name(): MatplotlibFormatter(),
+    PandasFormatter.package_name(): PandasFormatter(),
+    PolarsFormatter.package_name(): PolarsFormatter(),
+    PyArrowFormatter.package_name(): PyArrowFormatter(),
+    PygWalkerFormatter.package_name(): PygWalkerFormatter(),
+    PlotlyFormatter.package_name(): PlotlyFormatter(),
+    SeabornFormatter.package_name(): SeabornFormatter(),
+    LeafmapFormatter.package_name(): LeafmapFormatter(),
+    BokehFormatter.package_name(): BokehFormatter(),
+    HoloViewsFormatter.package_name(): HoloViewsFormatter(),
+    IPythonFormatter.package_name(): IPythonFormatter(),
+    IPyWidgetsFormatter.package_name(): IPyWidgetsFormatter(),
+    AnyWidgetFormatter.package_name(): AnyWidgetFormatter(),
+    ArviZFormatter.package_name(): ArviZFormatter(),
+    TqdmFormatter.package_name(): TqdmFormatter(),
+    LetsPlotFormatter.package_name(): LetsPlotFormatter(),
+    SympyFormatter.package_name(): SympyFormatter(),
+    PyechartsFormatter.package_name(): PyechartsFormatter(),
+    PanelFormatter.package_name(): PanelFormatter(),
+}
+
+#+END_SRC
+*** Assignment NATIVE_FACTORIES
+#+BEGIN_SRC python
+# Formatters for builtin types and other things that don't require a
+# third-party module import. These formatters' register methods need to be
+# fast: we don't want their registration to noticeably delay program start-up.
+NATIVE_FACTORIES: Sequence[FormatterFactory] = [
+    CellFormatter(),
+    StructuresFormatter(),
+]
+
+#+END_SRC
+*** Function register_formatters
+#+BEGIN_SRC python
+def register_formatters(theme: Theme = "light") -> None:
+    """Register formatters with marimo.
+
+    marimo comes packaged with rich formatters for a number of third-party
+    libraries. This function hooks into Python's import system to register
+    these formatters with the kernel if and when a supported third-party
+    library is imported into a marimo notebook.
+
+    Hooking into the import system is more complicated than the alternative
+    of checking whether a package is installed (by importing it) and then
+    registering its formatters at kernel start-up. However, because some
+    packages imports take a long time, this alternative would add considerable
+    delay at program start-up, as the kernel would block as it registered
+    all formatters before running the notebook. Hooking into the import
+    system makes formatter registration completely lazy, improving
+    UX at the cost of increased complexity that we have to maintain. In this
+    case, the trade-off is worth it.
+    """
+
+    # For modules that are already imported, register their formatters
+    # immediately; their import hook wouldn't be triggered since they are
+    # already imported. This is relevant when executing as a script.
+    pre_registered: set[str] = set()
+    for package, factory in THIRD_PARTY_FACTORIES.items():
+        if package in sys.modules:
+            factory.register()
+            factory.apply_theme_safe(theme)
+            pre_registered.add(package)
+
+    third_party_factories = {
+        package: factory
+        for package, factory in THIRD_PARTY_FACTORIES.items()
+        if package not in pre_registered
+    }
+
+    # We loop over all MetaPathFinders, monkey-patching them to run third-party
+    # formatters whenever a supported third-party package is imported (in
+    # particular, when its module is exec'd). This ensures that formatters are
+    # loaded at the last possible moment: when its package is imported.
+    #
+    # Python's import logic has roughly the following logic:
+    #   1. search for a module; if found, create a "module spec" that knows
+    #      how to create and load the module.
+    #   2. use the spec's loader to load the module.
+    #
+    # We monkey-patch the first step to check if a searched-for module
+    # has a registered formatter. If a registered formatter is found,
+    # our patch in turn patches the loader to run the formatter after
+    # the module is exec'd.
+    #
+    # Because Python's import system caches modules, our formatters'
+    # register methods will be called at most once.
+    for finder in sys.meta_path:
+        # Note: "Vendored" dependencies may not have a find_spec method.
+        # E.g. `six` bundled with a project.
+        original_find_spec = getattr(finder, "find_spec", None)
+        if original_find_spec is None:
+            continue
+
+        # We include `original_find_spec` as a kwarg to force it to be bound
+        # to the new `find_spec` method; this is needed because closures are
+        # late-binding and we're in a for loop ...
+        def find_spec(  # type:ignore[no-untyped-def]
+            self,
+            fullname,
+            path=None,
+            target=None,
+            original_find_spec=original_find_spec,
+        ) -> Any:
+            del self
+            spec = original_find_spec(fullname, path, target)
+            if spec is None:
+                return spec
+
+            if spec.loader is not None and fullname in third_party_factories:
+                # We're now in the process of importing a module with
+                # an associated formatter factory. We'll hook into its
+                # loader to register the formatters.
+                original_exec_module = spec.loader.exec_module
+                factory = THIRD_PARTY_FACTORIES[fullname]
+
+                # Once again, we use kwargs instead of closing over the
+                # variables `original_exec_module` and `factory` to force
+                # binding.
+                def exec_module(
+                    module: Any,
+                    original_exec_module: Callable[
+                        ..., Any
+                    ] = original_exec_module,
+                    factory: FormatterFactory = factory,
+                ) -> Any:
+                    loader_return_value = original_exec_module(module)
+                    factory.register()
+                    factory.apply_theme_safe(theme)
+                    return loader_return_value
+
+                spec.loader.exec_module = exec_module
+
+            return spec
+
+        # Use the __get__ descriptor to bind find_spec to this finder object,
+        # to make sure self/cls gets passed
+        finder.find_spec = find_spec.__get__(finder)  # type: ignore[method-assign]  # noqa: E501
+
+    # These factories are for builtins or other things that don't require a
+    # package import. So we can register them at program start-up.
+    for factory in NATIVE_FACTORIES:
+        factory.register()
+        factory.apply_theme_safe(theme)
+
+#+END_SRC
+** holoviews_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.holoviews_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/holoviews_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._config.config import Theme
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._plugins.ui._impl.from_panel import panel as from_panel
+
+#+END_SRC
+*** Class HoloViewsFormatter
+#+BEGIN_SRC python
+class HoloViewsFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "holoviews"
+
+    def register(self) -> None:
+        import holoviews as hv  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        from marimo._output import formatting
+
+        @formatting.formatter(hv.core.ViewableElement)
+        @formatting.formatter(hv.core.Layout)
+        @formatting.formatter(hv.HoloMap)
+        @formatting.formatter(hv.DynamicMap)
+        @formatting.formatter(hv.core.spaces.HoloMap)
+        @formatting.formatter(hv.core.ndmapping.UniformNdMapping)
+        @formatting.formatter(hv.core.ndmapping.NdMapping)
+        def _show_chart(
+            plot: (
+                hv.core.ViewableElement
+                | hv.core.Layout
+                | hv.HoloMap
+                | hv.DynamicMap
+                | hv.core.spaces.HoloMap
+                | hv.core.ndmapping.UniformNdMapping
+                | hv.core.ndmapping.NdMapping
+            ),
+        ) -> tuple[KnownMimeType, str]:
+            return from_panel(plot)._mime_()
+
+    def apply_theme(self, theme: Theme) -> None:
+        import holoviews as hv  # type: ignore
+
+        if DependencyManager.bokeh.has():
+            hv.renderer("bokeh").theme = (
+                "dark_minimal" if theme == "dark" else None
+            )
+        if DependencyManager.plotly.has():
+            hv.renderer("plotly").theme = (
+                "plotly_dark" if theme == "dark" else "plotly"
+            )
+
+#+END_SRC
+** ipython_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.ipython_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/ipython_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import functools
+from typing import Any, Callable
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.builder import h
+from marimo._output.formatters.formatter_factory import FormatterFactory
+
+#+END_SRC
+*** Class IPythonFormatter
+#+BEGIN_SRC python
+class IPythonFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "IPython"
+
+    def register(self) -> Callable[[], None]:
+        import IPython.display  # type:ignore
+
+        from marimo._output import formatting
+        from marimo._runtime.output import _output
+
+        old_display = IPython.display.display
+        # monkey patch IPython.display.display, which imperatively writes
+        # outputs to the frontend
+
+        @functools.wraps(old_display)
+        def display(*objs: Any, **kwargs: Any) -> None:
+            # IPython.display.display returns a DisplayHandle, which
+            # can be used to update the displayed object. We don't support
+            # that yet ...
+            if kwargs.pop("clear", False):
+                _output.clear()
+            for value in objs:
+                _output.append(value)
+
+        IPython.display.display = display
+
+        def unpatch() -> None:
+            IPython.display.display = old_display
+
+        @formatting.formatter(
+            IPython.display.HTML  # type:ignore
+        )
+        def _format_html(
+            html: IPython.display.HTML,  # type:ignore
+        ) -> tuple[KnownMimeType, str]:
+            if html.url is not None:
+                # TODO(akshayka): resize iframe not working
+                data = h.iframe(
+                    src=html.url,
+                    onload="__resizeIframe(this)",
+                    width="100%",
+                )
+            else:
+                data = str(html._repr_html_())  # type: ignore
+
+            return ("text/html", data)
+
+        return unpatch
+
+#+END_SRC
+** ipywidgets_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.ipywidgets_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/ipywidgets_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._plugins.ui._impl.anywidget.init import init_marimo_widget
+
+#+END_SRC
+*** Class IPyWidgetsFormatter
+#+BEGIN_SRC python
+class IPyWidgetsFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "ipywidgets"
+
+    def register(self) -> None:
+        import ipywidgets  # type:ignore
+
+        Widget = ipywidgets.Widget
+        Widget.on_widget_constructed(init_marimo_widget)  # type:ignore
+
+#+END_SRC
+** leafmap_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.leafmap_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/leafmap_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.builder import h
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._output.formatters.utils import src_or_src_doc
+from marimo._output.md import md
+from marimo._output.utils import flatten_string
+
+#+END_SRC
+*** Class LeafmapFormatter
+#+BEGIN_SRC python
+class LeafmapFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "leafmap"
+
+    def register(self) -> None:
+        # Different backends
+        # plotly is handled by PlotlyFormatter
+        import leafmap.foliumap as leafmap_folium  # type: ignore[import-untyped]
+        import leafmap.leafmap as leafmap  # type: ignore[import-untyped]
+
+        from marimo._output import formatting
+
+        @formatting.formatter(leafmap_folium.Map)
+        def _show_folium_map(
+            fmap: leafmap_folium.Map,
+        ) -> tuple[KnownMimeType, str]:
+            # leafmap.folium.Map has a _repr_html_, which we have
+            # another custom formatter for, but this wraps the map in an
+            # additional iframe which can cause weird layout issues
+            html_content = fmap.to_html()
+            return (
+                "text/html",
+                flatten_string(
+                    h.iframe(
+                        **src_or_src_doc(html_content),
+                        onload="__resizeIframe(this)",
+                        style="min-height: 540px",
+                        width="100%",
+                    )
+                ),
+            )
+
+        @formatting.formatter(leafmap.Map)
+        def _show_map(
+            lmap: leafmap.Map,
+        ) -> tuple[KnownMimeType, str]:
+            del lmap
+            return (
+                "text/html",
+                md(
+                    """
+                    leafmap.Map objects are not supported in marimo.
+                    Please change the backend to `folium` or `plotly`.
+
+                    ```python
+                    import leafmap.foliumap as leafmap
+                    # or
+                    import leafmap.plotlymap as leafmap
+                    ```
+                    """
+                )
+                .callout()
+                .text,
+            )
+
+        # Kepler is an optional dependency
+        # so we don't want this to fail if it's not installed
+        try:
+            import leafmap.kepler as leafmap_kepler  # type: ignore[import-untyped]
+
+            @formatting.formatter(leafmap_kepler.Map)
+            def _show_kepler_map(
+                kmap: leafmap_kepler.Map,
+            ) -> tuple[KnownMimeType, str]:
+                contents = kmap.to_html() or ""
+                return (
+                    "text/html",
+                    flatten_string(
+                        h.iframe(
+                            **src_or_src_doc(contents),
+                            onload="__resizeIframe(this)",
+                            style="min-height: 540px",
+                            width="100%",
+                        )
+                    ),
+                )
+
+        except (ImportError, ModuleNotFoundError):
+            pass
+
+#+END_SRC
+** lets_plot_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.lets_plot_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/lets_plot_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+
+#+END_SRC
+*** Class LetsPlotFormatter
+#+BEGIN_SRC python
+class LetsPlotFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "lets_plot"
+
+    def register(self) -> None:
+        import lets_plot.plot.core  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+        import lets_plot.plot.subplots  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        from marimo._output import formatting
+
+        @formatting.formatter(lets_plot.plot.core.PlotSpec)
+        def _html_from_plot_spec(
+            fig: lets_plot.plot.core.PlotSpec,
+        ) -> tuple[KnownMimeType, str]:
+            html_str: str = fig.to_html(iframe=True)
+            return ("text/html", html_str)
+
+        @formatting.formatter(lets_plot.plot.subplots.SupPlotsSpec)
+        def _html_from_subplot_spec(
+            fig: lets_plot.plot.subplots.SupPlotsSpec,
+        ) -> tuple[KnownMimeType, str]:
+            html_str: str = fig.to_html(iframe=True)
+            return ("text/html", html_str)
+
+#+END_SRC
+** matplotlib_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.matplotlib_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/matplotlib_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._config.config import Theme
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+
+#+END_SRC
+*** Class MatplotlibFormatter
+#+BEGIN_SRC python
+class MatplotlibFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "matplotlib"
+
+    def register(self) -> None:
+        import matplotlib  # type: ignore
+
+        from marimo._runtime.context import (
+            get_global_context,
+        )
+        from marimo._runtime.context.utils import running_in_notebook
+
+        get_global_context().set_mpl_installed(True)
+        from marimo._output import mpl  # noqa: F401
+
+        if running_in_notebook():
+            matplotlib.use("module://marimo._output.mpl")
+
+        import base64
+        import io
+
+        from matplotlib.artist import Artist  # type: ignore
+        from matplotlib.container import BarContainer  # type: ignore
+
+        from marimo._output import formatting
+        from marimo._output.utils import build_data_url
+
+        def mime_data_artist(artist: Artist) -> tuple[KnownMimeType, str]:
+            buf = io.BytesIO()
+            artist.figure.savefig(buf, format="png", bbox_inches="tight")  # type: ignore
+            mimetype: KnownMimeType = "image/png"
+            plot_bytes = base64.b64encode(buf.getvalue())
+            return (
+                mimetype,
+                build_data_url(mimetype=mimetype, data=plot_bytes),
+            )
+
+        # monkey-patch a _mime_ method, instead of using a formatter, because
+        # we want all subclasses of Artist to inherit this renderer.
+        Artist._mime_ = mime_data_artist  # type: ignore[attr-defined]
+
+        # use an explicit formatter, no need to try to format subclasses of
+        # BarContainer
+        @formatting.formatter(BarContainer)
+        def _show_bar_container(bc: BarContainer) -> tuple[KnownMimeType, str]:
+            if len(bc.patches) > 0:
+                return mime_data_artist(bc.patches[0].figure)  # type: ignore
+            else:
+                return ("text/plain", str(bc))
+
+    def apply_theme(self, theme: Theme) -> None:
+        import matplotlib.style  # type: ignore
+
+        # Note: we don't set to "default", because that overwrites all
+        # rcParams.
+        #
+        # We also don't try to restore from an rcParams file, because that
+        # may overwrite other rcParams that the user set.
+        #
+        # This means that the style can't be switched from dark to light
+        # without restarting the kernel.
+        if theme == "dark":
+            matplotlib.style.use("dark_background")
+
+#+END_SRC
+** pandas_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.pandas_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/pandas_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.df_formatters import include_opinionated
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._output.utils import flatten_string
+from marimo._plugins.ui._impl.table import table
+
+#+END_SRC
+*** Class PandasFormatter
+#+BEGIN_SRC python
+class PandasFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "pandas"
+
+    def register(self) -> None:
+        import pandas as pd
+
+        pd.set_option("display.max_rows", 10)
+        pd.set_option("display.max_columns", 20)
+        pd.set_option("display.show_dimensions", "truncate")
+
+        from marimo._output import formatting
+
+        if include_opinionated():
+
+            @formatting.opinionated_formatter(pd.DataFrame)
+            def _show_marimo_dataframe(
+                df: pd.DataFrame,
+            ) -> tuple[KnownMimeType, str]:
+                return table(df, selection=None, pagination=True)._mime_()
+
+        @formatting.formatter(pd.DataFrame)
+        def _show_dataframe(df: pd.DataFrame) -> tuple[KnownMimeType, str]:
+            max_rows = pd.get_option("display.max_rows")
+            max_columns = pd.get_option("display.max_columns")
+            show_dimensions_option = pd.get_option("display.show_dimensions")
+
+            if show_dimensions_option == "truncate":
+                # Handle None for max_rows
+                if max_rows is None:
+                    max_rows = len(df.index)
+
+                # Handle None for max_columns
+                if max_columns is None:
+                    max_columns = len(df.columns)
+
+                show_dimensions = (
+                    len(df.index) > max_rows or len(df.columns) > max_columns
+                )
+            elif show_dimensions_option:
+                show_dimensions = True
+            else:
+                show_dimensions = False
+
+            # Flatten the HTML to avoid indentation issues when
+            # interpolating into other HTML/Markdown with an f-string
+            return (
+                "text/html",
+                flatten_string(
+                    df.to_html(
+                        max_rows=max_rows,
+                        max_cols=max_columns,
+                        show_dimensions=show_dimensions,
+                    )
+                ),
+            )
+
+        @formatting.formatter(pd.Series)
+        def _show_series(series: pd.Series[Any]) -> tuple[KnownMimeType, str]:
+            max_rows = pd.get_option("display.max_rows")
+            show_dimensions_option = pd.get_option("display.show_dimensions")
+
+            if show_dimensions_option == "truncate":
+                # Handle None for max_rows
+                if max_rows is None:
+                    max_rows = len(series.index)
+
+                show_dimensions = len(series.index) > max_rows
+            elif show_dimensions_option:
+                show_dimensions = True
+            else:
+                show_dimensions = False
+
+            return (
+                "text/html",
+                flatten_string(
+                    series.to_frame().to_html(
+                        max_rows=max_rows, show_dimensions=show_dimensions
+                    )
+                ),
+            )
+
+#+END_SRC
+** panel_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.panel_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/panel_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._plugins.ui._impl.from_panel import panel as from_panel
+
+#+END_SRC
+*** Class PanelFormatter
+#+BEGIN_SRC python
+class PanelFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "panel"
+
+    def register(self) -> None:
+        import panel  # type: ignore
+        import param  # type: ignore
+
+        from marimo._output import formatting
+
+        @formatting.formatter(param.reactive.rx)
+        @formatting.formatter(panel.viewable.Viewable)
+        @formatting.formatter(panel.viewable.Viewer)
+        def _from(lmap: Any) -> tuple[KnownMimeType, str]:
+            return from_panel(lmap)._mime_()
+
+#+END_SRC
+** plotly_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.plotly_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/plotly_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from marimo._config.config import Theme
+from marimo._messaging.cell_output import CellChannel
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._messaging.ops import CellOp
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._output.hypertext import Html
+from marimo._plugins.core.web_component import build_stateless_plugin
+
+#+END_SRC
+*** Class PlotlyFormatter
+#+BEGIN_SRC python
+class PlotlyFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "plotly"
+
+    def register(self) -> None:
+        import plotly.graph_objects  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+        import plotly.io as pio  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        from marimo._output import formatting
+
+        @formatting.formatter(plotly.graph_objects.Figure)
+        @formatting.formatter(plotly.graph_objects.FigureWidget)
+        def _show_plotly_figure(
+            fig: plotly.graph_objects.Figure,
+        ) -> tuple[KnownMimeType, str]:
+            dragmode = getattr(fig.layout, "dragmode", None)
+            if dragmode is None:
+                # Users are accustomed to default zoom.
+                fig.update_layout(dragmode="zoom")
+            json_str: str = pio.to_json(fig)
+            plugin = PlotlyFormatter.render_plotly_dict(json.loads(json_str))
+            return ("text/html", plugin.text)
+
+        # Patch Figure.show to add to console output instead of opening a
+        # browser.
+        def patched_show(
+            self: plotly.graph_objects.Figure, *args: Any, **kwargs: Any
+        ) -> None:
+            del args, kwargs
+            mimetype, data = _show_plotly_figure(self)
+            CellOp.broadcast_console_output(
+                channel=CellChannel.MEDIA,
+                mimetype=mimetype,
+                data=data,
+                cell_id=None,
+                status=None,
+            )
+
+        plotly.graph_objects.Figure.show = patched_show
+
+    @staticmethod
+    def render_plotly_dict(json: dict[Any, Any]) -> Html:
+        import plotly.io as pio  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        resolved_config: dict[str, Any] = {}
+        if pio.renderers.default:
+            try:
+                default_renderer: Any = pio.renderers[pio.renderers.default]
+                resolved_config = default_renderer.config or {}
+            except AttributeError:
+                pass
+
+        return Html(
+            build_stateless_plugin(
+                component_name="marimo-plotly",
+                args={"figure": json, "config": resolved_config},
+            )
+        )
+
+    def apply_theme(self, theme: Theme) -> None:
+        import plotly.io as pio  # type: ignore
+
+        pio.templates.default = "plotly_dark" if theme == "dark" else "plotly"
+
+#+END_SRC
+** pyecharts_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.pyecharts_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/pyecharts_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.builder import h
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._output.formatters.utils import src_or_src_doc
+from marimo._output.utils import flatten_string
+
+#+END_SRC
+*** Class PyechartsFormatter
+#+BEGIN_SRC python
+class PyechartsFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "pyecharts"
+
+    def register(self) -> None:
+        from pyecharts.charts.base import (  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+            Base,
+        )
+
+        from marimo._output import formatting
+
+        @formatting.formatter(Base)
+        def _show(chart: Base) -> tuple[KnownMimeType, str]:
+            html_content = chart.render_embed()
+            return (
+                "text/html",
+                flatten_string(
+                    h.iframe(
+                        **src_or_src_doc(html_content),
+                        onload="__resizeIframe(this)",
+                        style="width: 100%",
+                    )
+                ),
+            )
+
+#+END_SRC
+** pygwalker_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.pygwalker_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/pygwalker_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._runtime.context.utils import running_in_notebook
+
+#+END_SRC
+*** Class PygWalkerFormatter
+#+BEGIN_SRC python
+class PygWalkerFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "pygwalker"
+
+    def register(self) -> None:
+        if running_in_notebook():
+            # monkey-patch pygwalker.walk to work in marimo;
+            # older versions of marimo may not have api.marimo, and not sure
+            # about pygwalker's API stability, so use a coarse try/except
+            try:
+                import pygwalker  # type: ignore
+                from pygwalker.api.marimo import walk  # type: ignore
+
+                pygwalker.walk = walk  # type: ignore
+            except Exception:
+                pass
+
+#+END_SRC
+** repr_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.repr_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/repr_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any, Callable, Optional, Tuple
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._plugins.core.media import io_to_data_url
+from marimo._utils.methods import is_callable_method
+
+#+END_SRC
+*** Function maybe_get_repr_formatter
+#+BEGIN_SRC python
+def maybe_get_repr_formatter(
+    obj: Any,
+) -> Optional[Callable[[Any], tuple[KnownMimeType, str]]]:
+    """
+    Get a formatter that uses the object's _repr_ methods.
+    """
+    md_mime_types: list[KnownMimeType] = [
+        "text/markdown",
+        "text/latex",
+    ]
+
+    # Check for the misc _repr_ methods
+    # Order dictates preference
+    reprs: list[Tuple[str, KnownMimeType]] = [
+        ("_repr_html_", "text/html"),  # text/html is preferred first
+        ("_repr_mimebundle_", "application/vnd.marimo+mimebundle"),
+        ("_repr_svg_", "image/svg+xml"),
+        ("_repr_json_", "application/json"),
+        ("_repr_png_", "image/png"),
+        ("_repr_jpeg_", "image/jpeg"),
+        ("_repr_markdown_", "text/markdown"),
+        ("_repr_latex_", "text/latex"),
+        ("_repr_text_", "text/plain"),  # last
+    ]
+    has_possible_repr = any(is_callable_method(obj, attr) for attr, _ in reprs)
+    if has_possible_repr:
+        # If there is any match, we return a formatter that calls
+        # all the possible _repr_ methods, since some can be implemented
+        # but return None
+        def f_repr(obj: Any) -> tuple[KnownMimeType, str]:
+            for attr, mime_type in reprs:
+                if not is_callable_method(obj, attr):
+                    continue
+
+                method = getattr(obj, attr)
+                # Try to call _repr_mimebundle_ with include/exclude parameters
+                if attr == "_repr_mimebundle_":
+                    try:
+                        contents = method(include=[], exclude=[])
+                    except TypeError:
+                        # If that fails, call the method without parameters
+                        contents = method()
+                    # Remove text/plain from the mimebundle if it's present
+                    # since there are other representations available
+                    # N.B. We cannot pass this as an argument to the method
+                    # because this unfortunately could break some libraries
+                    # (e.g. ibis)
+                    if "text/plain" in contents and len(contents) > 1:
+                        contents.pop("text/plain")
+                    # Convert markdown/latex to text/html if text/html is
+                    # not present
+                    for md_mime_type in md_mime_types:
+                        if (
+                            "text/html" not in contents
+                            and md_mime_type in contents
+                        ):
+                            from marimo._output.md import md
+
+                            contents["text/html"] = md(
+                                str(contents[md_mime_type])
+                            ).text
+                else:
+                    contents = method()
+
+                # If the method returns None, continue to the next method
+                if contents is None:
+                    continue
+
+                # Handle the case where the contents are bytes
+                if isinstance(contents, bytes):
+                    # Data should ideally a string, but in case it's bytes,
+                    # we convert it to a data URL
+                    data_url = io_to_data_url(
+                        contents, fallback_mime_type=mime_type
+                    )
+                    return (mime_type, data_url or "")
+
+                # Handle markdown and latex
+                if mime_type in md_mime_types:
+                    from marimo._output.md import md
+
+                    return ("text/html", md(contents or "").text)
+
+                return (mime_type, contents)
+
+            return ("text/html", "")
+
+        return f_repr
+
+    return None
+
+#+END_SRC
+** seaborn_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.seaborn_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/seaborn_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+
+#+END_SRC
+*** Class SeabornFormatter
+#+BEGIN_SRC python
+class SeabornFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "seaborn"
+
+    def register(self) -> None:
+        from typing import Any, cast
+
+        # unused-ignore is needed since in development we may sometimes have
+        # seaborn installed, in which case import-not-found is not applicable
+        import seaborn  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        from marimo._output import formatting
+        from marimo._output.mime import MIME
+
+        def _show_ax_or_subplots(grid: Any) -> tuple[KnownMimeType, str]:
+            # Seaborn uses matplotlib under the hood: figures and axes are
+            # instances of matplotlib's Artist class. (We've monkey pathed
+            # `Artist` to implement the MIME protocol.)
+            if hasattr(grid, "figure"):
+                return cast(MIME, grid.figure)._mime_()
+            if hasattr(grid, "ax"):
+                return cast(MIME, grid.ax)._mime_()
+            elif hasattr(grid, "axes"):
+                return cast(MIME, grid.axes.flatten()[0])._mime_()
+            else:
+                return ("text/plain", str(grid))
+
+        @formatting.formatter(seaborn.axisgrid.FacetGrid)
+        def _show_facet_grid(
+            fg: seaborn.axisgrid.FacetGrid,
+        ) -> tuple[KnownMimeType, str]:
+            return _show_ax_or_subplots(fg)
+
+        @formatting.formatter(seaborn.axisgrid.PairGrid)
+        def _show_pair_grid(
+            pg: seaborn.axisgrid.PairGrid,
+        ) -> tuple[KnownMimeType, str]:
+            return _show_ax_or_subplots(pg)
+
+        @formatting.formatter(seaborn.axisgrid.JointGrid)
+        def _show_joint_grid(
+            jg: seaborn.axisgrid.JointGrid,
+        ) -> tuple[KnownMimeType, str]:
+            return _show_ax_or_subplots(jg)
+
+#+END_SRC
+** structures
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.structures
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/structures.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import json
+import sys
+from typing import Any, Union
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output import formatting
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._output.formatters.repr_formatters import maybe_get_repr_formatter
+from marimo._utils.flatten import CyclicStructureError, flatten
+
+#+END_SRC
+*** Function _leaf_formatter
+#+BEGIN_SRC python
+def _leaf_formatter(value: object) -> bool | None | str:
+    formatter = formatting.get_formatter(value)
+    if formatter is not None:
+        return ":".join(formatter(value))
+    if isinstance(value, bool):
+        return value
+    elif value is None:
+        return value
+    else:
+        # floats and ints are still converted to strings because JavaScript
+        # can't reliably distinguish between them (eg 1 and 1.0)
+        try:
+            return f"text/plain:{json.dumps(value)}"
+        except TypeError:
+            return f"text/plain:{value}"
+
+#+END_SRC
+*** Function format_structure
+#+BEGIN_SRC python
+def format_structure(
+    t: Union[tuple[Any, ...], list[Any], dict[str, Any]],
+) -> Union[tuple[Any, ...], list[Any], dict[str, Any]]:
+    """Format the leaves of a structure.
+
+    Returns a structure of the same shape as `t` with formatted
+    leaves.
+    """
+    flattened, repacker = flatten(t, json_compat_keys=True)
+    return repacker([_leaf_formatter(v) for v in flattened])
+
+#+END_SRC
+*** Class StructuresFormatter
+#+BEGIN_SRC python
+class StructuresFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> None:
+        return None
+
+    def register(self) -> None:
+        @formatting.formatter(list)
+        @formatting.formatter(tuple)
+        @formatting.formatter(dict)
+        def _format_structure(
+            t: Union[tuple[Any, ...], list[Any], dict[str, Any]],
+        ) -> tuple[KnownMimeType, str]:
+            # Some objects extend list/tuple/dict, but also have _repr_ methods
+            # that we want to use preferentially.
+            repr_formatter = maybe_get_repr_formatter(t)
+            if repr_formatter is not None:
+                return repr_formatter(t)
+
+            if t and "matplotlib" in sys.modules:
+                # Special case for matplotlib:
+                #
+                # plt.plot() returns a list of lines 2D objects, one for each
+                # line, which typically have identical figures. Without this
+                # special case, if a plot had (say) 5 lines, it would be shown
+                # 5 times.
+                import matplotlib.artist  # type: ignore
+
+                if all(isinstance(i, matplotlib.artist.Artist) for i in t):
+                    figs = [getattr(i, "figure", None) for i in t]
+                    if all(f is not None and f == figs[0] for f in figs):
+                        matplotlib_formatter = formatting.get_formatter(
+                            figs[0]
+                        )
+                        if matplotlib_formatter is not None:
+                            return matplotlib_formatter(figs[0])
+            try:
+                formatted_structure = format_structure(t)
+            except CyclicStructureError:
+                return ("text/plain", str(t))
+
+            return ("application/json", json.dumps(formatted_structure))
+
+#+END_SRC
+** sympy_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.sympy_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/sympy_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any
+
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.formatters.formatter_factory import FormatterFactory
+
+#+END_SRC
+*** Function patch_sympy
+#+BEGIN_SRC python
+def patch_sympy(*objs: Any) -> None:
+    import marimo as mo
+
+    """adds the _mime_() method to sympy objects
+    e.g.
+    Symbol._mime_ = sympy_html
+    example:
+    patch_sympy(Symbol, Integral)
+    """
+    from sympy import latex  # type: ignore
+
+    for obj in objs:
+        # the lambda below is our sympy_html
+        obj._mime_ = lambda obj: (
+            "text/html",
+            mo.md(f"""\\[{latex(obj)}\\]""").text,
+        )
+
+#+END_SRC
+*** Function sympy_as_html
+#+BEGIN_SRC python
+def sympy_as_html(obj: Any) -> tuple[KnownMimeType, str]:
+    from sympy import latex
+
+    import marimo as mo
+
+    """creates HTML output from a Printable Sympy object
+    e.g.
+    example:
+    integral = Integral(x**2, x)
+    sympy_as_html(integral)
+    """
+    return ("text/html", mo.md(f"""\\[{latex(obj)}\\]""").text)
+
+#+END_SRC
+*** Class SympyFormatter
+#+BEGIN_SRC python
+class SympyFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "sympy"
+
+    def register(self) -> None:
+        from sympy.core.basic import Printable  # type: ignore
+
+        # We will monkey-patch the Printable class so most Sympy constructs
+        # that can be "pretty-printed" with sympy.latex
+        # can also be rendered in marimo.
+        # One way to test if an expression is supported is
+        # with latex(expr)
+        # e.g. latex(x**2) --> x^{2}
+        patch_sympy(Printable)
+
+        # from marimo._output import formatting
+        # @formatting.formatter(Integral)
+        # def _show_integral(integral: Integral) -> tuple[KnownMimeType, str]:
+        #    return sympy_as_html(integral)
+
+#+END_SRC
+** tqdm_formatters
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.tqdm_formatters
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/tqdm_formatters.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any
+
+from marimo._output.formatters.formatter_factory import FormatterFactory
+from marimo._plugins.stateless.status._progress import progress_bar
+from marimo._runtime.context.utils import running_in_notebook
+
+#+END_SRC
+*** Class TqdmFormatter
+#+BEGIN_SRC python
+class TqdmFormatter(FormatterFactory):
+    @staticmethod
+    def package_name() -> str:
+        return "tqdm"
+
+    def register(self) -> None:
+        if running_in_notebook():
+            import tqdm.notebook  # type: ignore [import-not-found,import-untyped] # noqa: E501
+
+            def tqdm_to_progress_bar(
+                *args: Any, **kwargs: Any
+            ) -> progress_bar:
+                # Partial translation from tqdm to our native progress bar;
+                # uses API of tqdm v4.66.4, likely backward compatible.
+                iterable: Any = kwargs.get("iterable", None)
+                desc: str | None = kwargs.get("desc", None)
+                total: int | None = kwargs.get("total", None)
+
+                # In case args were used
+                if args:
+                    iterable = args[0]
+                if len(args) >= 2:
+                    desc = args[1]
+                if len(args) >= 3:
+                    total = args[2]
+
+                return progress_bar(
+                    collection=iterable,
+                    title=desc or "Loading...",
+                    total=total,
+                )
+
+            tqdm.notebook.tqdm = tqdm_to_progress_bar
+
+#+END_SRC
+** utils
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.formatters.utils
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/formatters/utils.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import html
+from typing import Dict
+
+import marimo._output.data.data as mo_data
+from marimo._runtime.context.types import (
+    ContextNotInitializedError,
+    get_context,
+)
+
+#+END_SRC
+*** Function src_or_src_doc
+#+BEGIN_SRC python
+def src_or_src_doc(html_content: str) -> Dict[str, str]:
+    """
+    Depending if virtual files are supported,
+    return the appropriate src or srcdoc attribute for an iframe.
+
+    While `src:text/html;base64` is supported in most modern browsers,
+    it does not allow us to resize the iframe to fit the content.
+
+    So, we use `srcdoc` when not running a server (e.g. an html export).
+    """
+
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
+        # If no context, return srcdoc
+        return {"srcdoc": html.escape(html_content)}
+
+    if ctx.virtual_files_supported:
+        html_file = mo_data.html(html_content)
+        return {"src": html_file.url}
+    else:
+        return {"srcdoc": html.escape(html_content)}
+
+#+END_SRC
+* md_extensions
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.md_extensions
+:END:
+** __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.md_extensions.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/md_extensions/__init__.py
+:END:
+*** Comment
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+#+END_SRC
+** external_links
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.md_extensions.external_links
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/md_extensions/external_links.py
+:END:
+*** Class ExternalLinksTreeProcessor
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from urllib.parse import urlparse
+from xml.etree.ElementTree import Element
+
+from markdown import Extension, Markdown, treeprocessors  # type: ignore
+
+# Adapted from https://github.com/squidfunk/mkdocs-material/discussions/3660#discussioncomment-6725823  # noqa: E501
+
+
+class ExternalLinksTreeProcessor(treeprocessors.Treeprocessor):  # type: ignore[misc]  # noqa: E501
+    """
+    Adds target="_blank" and rel="noopener" to external links.
+    """
+
+    def run(self, root: Element) -> None:
+        for element in root.iter():
+            if element.tag != "a":
+                continue
+
+            href = element.get("href", "")
+
+            parsed_url = urlparse(href)
+
+            if parsed_url.scheme in ["http", "https"]:
+                element.set("target", "_blank")
+                element.set("rel", "noopener")
+
+#+END_SRC
+*** Class ExternalLinksExtension
+#+BEGIN_SRC python
+class ExternalLinksExtension(Extension):  # type: ignore[misc]
+    def extendMarkdown(self, md: Markdown) -> None:
+        md.treeprocessors.register(
+            ExternalLinksTreeProcessor(md),
+            "external_links",
+            -1000,
+        )
+
+#+END_SRC
+** iconify
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._output.md_extensions.iconify
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_output/md_extensions/iconify.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+from xml.etree.ElementTree import Element
+
+from markdown import Extension, Markdown, inlinepatterns
+
+#+END_SRC
+*** Class IconifyPattern
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    import re
+
+
+class IconifyPattern(inlinepatterns.InlineProcessor):
+    """
+    Converts ::icon-set:icon-name:: to an iconify-icon element.
+    """
+
+    def __init__(self, pattern: str, md: Markdown) -> None:
+        super().__init__(pattern, md)
+
+    def handleMatch(  # type: ignore
+        self, m: re.Match[str], data: str
+    ) -> tuple[Element, int, int]:
+        del data
+        icon_name = m.group(1)
+        return (
+            Element("iconify-icon", {"icon": icon_name, "inline": ""}),
+            m.start(0),
+            m.end(0),
+        )
+
+#+END_SRC
+*** Class IconifyExtension
+#+BEGIN_SRC python
+class IconifyExtension(Extension):
+    def extendMarkdown(self, md: Markdown) -> None:
+        # Add IconifyPattern with high priority (200) to
+        # handle it before other inline patterns
+        md.inlinePatterns.register(
+            IconifyPattern(r"::([a-zA-Z0-9-]+:[a-zA-Z0-9-]+)::", md),
+            "iconify",
+            200,
+        )
+
+#+END_SRC

@@ -1,0 +1,1284 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._data
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* charts
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._data.charts
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_data/charts.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import abc
+from dataclasses import dataclass
+from textwrap import dedent
+from typing import Any, cast
+
+from marimo._data.models import DataType
+from marimo._utils import assert_never
+
+#+END_SRC
+** @abc.abstractmethod: Class ChartBuilder
+#+BEGIN_SRC python
+@abc.abstractmethod
+class ChartBuilder:
+    @abc.abstractmethod
+    def altair(self, data: Any, column: str) -> Any:
+        raise NotImplementedError
+
+    def altair_json(self, data: Any, column: str) -> str:
+        return cast(str, self.altair(data, column).to_json())
+
+    @abc.abstractmethod
+    def altair_code(self, data: str, column: str) -> str:
+        raise NotImplementedError
+
+#+END_SRC
+** @dataclass: Class ChartParams
+#+BEGIN_SRC python
+@dataclass
+class ChartParams:
+    table_name: str
+    column: str
+
+#+END_SRC
+** Class NumberChartBuilder
+#+BEGIN_SRC python
+class NumberChartBuilder(ChartBuilder):
+    def altair(self, data: Any, column: str) -> Any:
+        import altair as alt  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        return (
+            alt.Chart(data)
+            .mark_bar()
+            .encode(
+                x=alt.X(column, type="quantitative", bin=True),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+
+    def altair_code(self, data: str, column: str) -> str:
+        return f"""
+        _chart = (
+            alt.Chart({data})
+            .mark_bar()
+            .encode(
+                x=alt.X("{column}", type="quantitative", bin=True),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+        _chart
+        """
+
+#+END_SRC
+** Class StringChartBuilder
+#+BEGIN_SRC python
+class StringChartBuilder(ChartBuilder):
+    def __init__(self, should_limit_to_10_items: bool) -> None:
+        self.should_limit_to_10_items = should_limit_to_10_items
+        super().__init__()
+
+    def altair(self, data: Any, column: str) -> Any:
+        import altair as alt  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        if self.should_limit_to_10_items:
+            return (
+                alt.Chart(data)
+                .transform_aggregate(count="count()", groupby=[column])
+                .transform_window(
+                    rank="rank()",
+                    sort=[
+                        alt.SortField("count", order="descending"),
+                        alt.SortField(column, order="ascending"),
+                    ],
+                )
+                .transform_filter(alt.datum.rank <= 10)
+                .mark_bar()
+                .encode(
+                    y=alt.Y(column, type="nominal", sort="-x"),
+                    x=alt.X("count", type="quantitative"),
+                )
+                .properties(title=f"Top 10 {column}", width="container")
+            )
+
+        return (
+            alt.Chart(data)
+            .mark_bar()
+            .encode(
+                y=alt.Y(column, type="nominal"),
+                x=alt.X("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+
+    def altair_code(self, data: str, column: str) -> str:
+        if self.should_limit_to_10_items:
+            return f"""
+            _chart = (
+                alt.Chart({data})
+                .transform_aggregate(count="count()", groupby=["{column}"])
+                .transform_window(
+                    rank="rank()",
+                    sort=[
+                        alt.SortField("count", order="descending"),
+                        alt.SortField("{column}", order="ascending"),
+                    ],
+                )
+                .transform_filter(alt.datum.rank <= 10)
+                .mark_bar()
+                .encode(
+                    y=alt.Y("{column}", type="nominal", sort="-x"),
+                    x=alt.X("count", type="quantitative"),
+                )
+                .properties(title="Top 10 {column}", width="container")
+            )
+            _chart
+            """
+
+        return f"""
+        _chart = (
+            alt.Chart({data})
+            .mark_bar()
+            .encode(
+                y=alt.Y("{column}", type="nominal"),
+                x=alt.X("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+        _chart
+        """
+
+#+END_SRC
+** Class DateChartBuilder
+#+BEGIN_SRC python
+class DateChartBuilder(ChartBuilder):
+    def altair(self, data: Any, column: str) -> Any:
+        import altair as alt  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        return (
+            alt.Chart(data)
+            .mark_line(point={"filled": False, "fill": "white"})
+            .encode(
+                x=alt.X(column, type="temporal"),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+
+    def altair_code(self, data: str, column: str) -> str:
+        return f"""
+        _chart = (
+            alt.Chart({data})
+            .mark_line(point={{"filled": False, "fill": "white"}})
+            .encode(
+                x=alt.X("{column}", type="temporal"),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+        _chart
+        """
+
+#+END_SRC
+** Class BooleanChartBuilder
+#+BEGIN_SRC python
+class BooleanChartBuilder(ChartBuilder):
+    def altair(self, data: Any, column: str) -> Any:
+        import altair as alt  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        return (
+            alt.Chart(data)
+            .mark_bar()
+            .encode(
+                x=alt.X(column, type="nominal"),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+
+    def altair_code(self, data: str, column: str) -> str:
+        return f"""
+        _chart = (
+            alt.Chart({data})
+            .mark_bar()
+            .encode(
+                x=alt.X("{column}", type="nominal"),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+        _chart
+        """
+
+#+END_SRC
+** Class IntegerChartBuilder
+#+BEGIN_SRC python
+class IntegerChartBuilder(ChartBuilder):
+    def altair(self, data: Any, column: str) -> Any:
+        import altair as alt  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        return (
+            alt.Chart(data)
+            .mark_bar()
+            .encode(
+                x=alt.X(column, type="quantitative", bin=True),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+
+    def altair_code(self, data: str, column: str) -> str:
+        return f"""
+        _chart = (
+            alt.Chart({data})
+            .mark_bar()
+            .encode(
+                x=alt.X("{column}", type="quantitative", bin=True),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+        _chart
+        """
+
+#+END_SRC
+** Class UnknownChartBuilder
+#+BEGIN_SRC python
+class UnknownChartBuilder(ChartBuilder):
+    def altair(self, data: Any, column: str) -> Any:
+        import altair as alt  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+        return (
+            alt.Chart(data)
+            .mark_bar()
+            .encode(
+                x=alt.X(column, type="nominal"),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+
+    def altair_code(self, data: str, column: str) -> str:
+        return f"""
+        _chart = (
+            alt.Chart({data})
+            .mark_bar()
+            .encode(
+                x=alt.X("{column}", type="nominal"),
+                y=alt.Y("count()", type="quantitative"),
+            )
+            .properties(width="container")
+        )
+        _chart
+        """
+
+#+END_SRC
+** Class WrapperChartBuilder
+#+BEGIN_SRC python
+class WrapperChartBuilder(ChartBuilder):
+    def __init__(self, delegate: ChartBuilder):
+        self.delegate = delegate
+
+    def altair(self, data: Any, column: str) -> Any:
+        return self.delegate.altair(
+            data, _escape_special_path_characters(str(column))
+        )
+
+    def altair_code(self, data: str, column: str) -> str:
+        return dedent(
+            self.delegate.altair_code(
+                data, _escape_special_path_characters(str(column))
+            )
+        ).strip()
+
+#+END_SRC
+** Function get_chart_builder
+#+BEGIN_SRC python
+def get_chart_builder(
+    column_type: DataType, should_limit_to_10_items: bool = False
+) -> ChartBuilder:
+    if column_type == "number":
+        return WrapperChartBuilder(NumberChartBuilder())
+    if column_type == "string":
+        return WrapperChartBuilder(
+            StringChartBuilder(should_limit_to_10_items)
+        )
+    if (
+        column_type == "date"
+        or column_type == "datetime"
+        or column_type == "time"
+    ):
+        return WrapperChartBuilder(DateChartBuilder())
+    if column_type == "boolean":
+        return WrapperChartBuilder(BooleanChartBuilder())
+    if column_type == "integer":
+        return WrapperChartBuilder(IntegerChartBuilder())
+    if column_type == "unknown":
+        return WrapperChartBuilder(UnknownChartBuilder())
+
+    assert_never(column_type)
+
+#+END_SRC
+** Function _escape_special_path_characters
+#+BEGIN_SRC python
+def _escape_special_path_characters(column: str | int) -> str:
+    """
+    Escape special characters in a column name that is a path.
+    """
+    if not isinstance(column, str):
+        return str(column)
+
+    return (
+        column.replace(".", "\\.")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+        .replace(":", "\\:")
+    )
+
+#+END_SRC
+* get_datasets
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._data.get_datasets
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_data/get_datasets.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import List, Optional, cast
+
+from marimo import _loggers
+from marimo._data.models import DataTable, DataTableColumn, DataType
+from marimo._plugins.ui._impl.tables.utils import get_table_manager_or_none
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Function get_datasets_from_variables
+#+BEGIN_SRC python
+def get_datasets_from_variables(
+    variables: List[tuple[str, object]],
+) -> List[DataTable]:
+    tables: List[DataTable] = []
+    for variable_name, value in variables:
+        table = _get_data_table(value, variable_name)
+        if table is not None:
+            tables.append(table)
+
+    return tables
+
+#+END_SRC
+** Function _get_data_table
+#+BEGIN_SRC python
+def _get_data_table(value: object, variable_name: str) -> Optional[DataTable]:
+    try:
+        table = get_table_manager_or_none(value)
+        if table is None:
+            return None
+
+        columns = [
+            DataTableColumn(
+                name=column_name,
+                type=column_type[0],
+                external_type=column_type[1],
+            )
+            for column_name, column_type in table.get_field_types()
+        ]
+        return DataTable(
+            name=variable_name,
+            variable_name=variable_name,
+            num_rows=table.get_num_rows(force=False),
+            num_columns=table.get_num_columns(),
+            source_type="local",
+            source="memory",
+            columns=columns,
+        )
+    except Exception as e:
+        LOGGER.error(
+            "Failed to get table data for variable %s",
+            variable_name,
+            exc_info=e,
+        )
+        return None
+
+#+END_SRC
+** Function has_updates_to_datasource
+#+BEGIN_SRC python
+def has_updates_to_datasource(query: str) -> bool:
+    import duckdb  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+    try:
+        statements = duckdb.extract_statements(query.strip())
+    except Exception:
+        # May not be valid SQL
+        return False
+
+    return any(
+        statement.type == duckdb.StatementType.ATTACH
+        or statement.type == duckdb.StatementType.DETACH
+        or statement.type == duckdb.StatementType.ALTER
+        # This may catch some false positives for other CREATE statements
+        or statement.type == duckdb.StatementType.CREATE
+        for statement in statements
+    )
+
+#+END_SRC
+** Function get_datasets_from_duckdb
+#+BEGIN_SRC python
+def get_datasets_from_duckdb() -> List[DataTable]:
+    try:
+        return _get_datasets_from_duckdb_internal()
+    except Exception as e:
+        LOGGER.error(e)
+        return []
+
+#+END_SRC
+** Function _get_datasets_from_duckdb_internal
+#+BEGIN_SRC python
+def _get_datasets_from_duckdb_internal() -> List[DataTable]:
+    import duckdb  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+    # Columns
+    # 0:"database"
+    # 1:"schema"
+    # 2:"name"
+    # 3:"column_names"
+    # 4:"column_types"
+    # 5:"temporary"
+    databases = duckdb.execute("SHOW ALL TABLES").fetchall()
+    if not len(databases):
+        # No tables
+        return []
+
+    tables: list[DataTable] = []
+
+    for (
+        database,
+        schema,
+        name,
+        column_names,
+        column_types,
+        *_rest,
+    ) in databases:
+        assert len(column_names) == len(column_types)
+        assert isinstance(column_names, list)
+        assert isinstance(column_types, list)
+
+        columns = [
+            DataTableColumn(
+                name=column_name,
+                type=_db_type_to_data_type(column_type),
+                external_type=column_type,
+            )
+            for column_name, column_type in zip(
+                cast(list[str], column_names),
+                cast(list[str], column_types),
+            )
+        ]
+
+        tables.append(
+            DataTable(
+                source_type="duckdb",
+                source=database,
+                name=f"{database}.{schema}.{name}",
+                num_rows=None,
+                num_columns=len(columns),
+                variable_name=None,
+                columns=columns,
+            )
+        )
+
+    return tables
+
+#+END_SRC
+** Function _db_type_to_data_type
+#+BEGIN_SRC python
+def _db_type_to_data_type(db_type: str) -> DataType:
+    db_type = db_type.lower()
+    # Numeric types
+    if db_type in [
+        "tinyint",
+        "smallint",
+        "integer",
+        "bigint",
+        "hugeint",
+        "utinyint",
+        "usmallint",
+        "uinteger",
+        "ubigint",
+        "uhugeint",
+    ]:
+        return "integer"
+    if db_type in [
+        "float",
+        "real",
+        "double",
+        "decimal",
+        "numeric",
+    ] or db_type.startswith("decimal"):
+        return "number"
+    # Boolean type
+    if db_type == "boolean":
+        return "boolean"
+    # String types
+    if db_type in [
+        "varchar",
+        "char",
+        "bpchar",
+        "text",
+        "string",
+        "blob",
+        "uuid",
+    ]:
+        return "string"
+    # Date and Time types
+    if db_type == "date":
+        return "date"
+    if db_type == "time":
+        return "time"
+    if db_type in [
+        "timestamp",
+        "timestamp with time zone",
+        "timestamptz",
+        "datetime",
+        "interval",
+    ]:
+        return "datetime"
+    # Nested types
+    if db_type in ["array", "list", "struct", "map", "union"]:
+        return "unknown"
+    # Special types
+    if db_type == "bit":
+        return "string"  # Representing bit as string
+    if db_type == "enum":
+        return "string"  # Representing enum as string
+    # Unknown type
+    return "unknown"
+
+#+END_SRC
+* models
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._data.models
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_data/models.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta  # noqa: TCH003
+from decimal import Decimal
+from typing import List, Literal, Optional, Union
+
+#+END_SRC
+** Assignment DataType
+#+BEGIN_SRC python
+DataType = Literal[
+    "string",
+    "boolean",
+    "integer",
+    "number",
+    "date",
+    "datetime",
+    "time",
+    "unknown",
+]
+
+#+END_SRC
+** Assignment ExternalDataType = str
+#+BEGIN_SRC python
+# This is the data type based on the source library
+# e.g. polars, pandas, numpy, etc.
+ExternalDataType = str
+
+#+END_SRC
+** @dataclass: Class DataTableColumn
+#+BEGIN_SRC python
+@dataclass
+class DataTableColumn:
+    """
+    Represents a column in a data table.
+
+    Attributes:
+        name (str): The name of the column.
+        type (DataType): The data type of the column.
+    """
+
+    name: str
+    type: DataType
+    external_type: ExternalDataType
+
+#+END_SRC
+** Assignment DataTableSource = Literal["local", "duckdb"]
+#+BEGIN_SRC python
+DataTableSource = Literal["local", "duckdb"]
+
+#+END_SRC
+** @dataclass: Class DataTable
+#+BEGIN_SRC python
+@dataclass
+class DataTable:
+    """
+    Represents a data table.
+
+    Attributes:
+        source (str): The source of the data table.
+        name (str): The name of the data table.
+        num_rows (Optional[int]): The number of rows in the data table.
+        num_columns (Optional[int]): The number of columns in the data table.
+        variable_name (Optional[str]): The variable name associated with
+        the data table.
+        columns (List[DataTableColumn]): The list of columns in the data table.
+    """
+
+    source_type: DataTableSource
+    source: str
+    name: str
+    num_rows: Optional[int]
+    num_columns: Optional[int]
+    variable_name: Optional[str]
+    columns: List[DataTableColumn]
+
+#+END_SRC
+** Assignment NumericLiteral = Union[int, float, Decimal]
+#+BEGIN_SRC python
+NumericLiteral = Union[int, float, Decimal]
+
+#+END_SRC
+** Assignment TemporalLiteral = Union[date, time, datetime, timedelta]
+#+BEGIN_SRC python
+TemporalLiteral = Union[date, time, datetime, timedelta]
+
+#+END_SRC
+** Assignment NonNestedLiteral = Union[NumericLiteral, TemporalLiteral, str, bool, bytes]
+#+BEGIN_SRC python
+NonNestedLiteral = Union[NumericLiteral, TemporalLiteral, str, bool, bytes]
+
+#+END_SRC
+** @dataclass: Class ColumnSummary
+#+BEGIN_SRC python
+@dataclass
+class ColumnSummary:
+    """
+    Represents a summary of a column in a data table.
+
+    """
+
+    total: Optional[int] = None
+    nulls: Optional[int] = None
+    unique: Optional[int] = None
+    min: Optional[NonNestedLiteral] = None
+    max: Optional[NonNestedLiteral] = None
+    mean: Optional[NonNestedLiteral] = None
+    median: Optional[NonNestedLiteral] = None
+    std: Optional[NonNestedLiteral] = None
+    true: Optional[int] = None
+    false: Optional[int] = None
+    p5: Optional[NonNestedLiteral] = None
+    p25: Optional[NonNestedLiteral] = None
+    # p50 is the median
+    p75: Optional[NonNestedLiteral] = None
+    p95: Optional[NonNestedLiteral] = None
+
+#+END_SRC
+* preview_column
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._data.preview_column
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_data/preview_column.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from marimo import _loggers
+from marimo._data.charts import get_chart_builder
+from marimo._data.models import ColumnSummary
+from marimo._data.sql_summaries import (
+    get_column_type,
+    get_histogram_data,
+    get_sql_summary,
+)
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._messaging.ops import DataColumnPreview
+from marimo._plugins.ui._impl.tables.table_manager import TableManager
+from marimo._plugins.ui._impl.tables.utils import get_table_manager_or_none
+from marimo._runtime.requests import PreviewDatasetColumnRequest
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Function get_column_preview_dataframe
+#+BEGIN_SRC python
+def get_column_preview_dataframe(
+    item: object,
+    request: PreviewDatasetColumnRequest,
+) -> DataColumnPreview | None:
+    """
+    Get a preview of the column in the dataset.
+
+    This may return a chart and a aggregation summary of the column.
+    """
+    column_name = request.column_name
+    table_name = request.table_name
+    try:
+        table = get_table_manager_or_none(item)
+        if table is None:
+            return None
+        if table.get_num_rows(force=True) == 0:
+            return DataColumnPreview(
+                table_name=table_name,
+                column_name=column_name,
+                error="Table is empty",
+            )
+
+        # Get the summary of the column
+        try:
+            summary = table.get_summary(column_name)
+        except BaseException as e:
+            # Catch-all: some libraries like Polars have bugs and raise
+            # BaseExceptions, which shouldn't crash the kernel
+            LOGGER.warning(
+                "Failed to get summary for column %s in table %s",
+                column_name,
+                table_name,
+                exc_info=e,
+            )
+            summary = ColumnSummary()
+
+        # We require altair to render the chart
+        error = None
+        if not DependencyManager.altair.has():
+            error = (
+                "Altair is required to render charts. "
+                "Install it with `pip install altair`."
+            )
+        else:
+            # Check for special characters that can't be escaped easily
+            # (e.g. backslash, quotes)
+            for char in ["\\", '"', "'"]:
+                if char in str(column_name):
+                    error = (
+                        f"Column names with `{char}` are not supported "
+                        "in charts. Consider renaming the column."
+                    )
+                    break
+
+        # Get the chart for the column
+        chart_max_rows_errors = False
+        chart_spec = None
+        chart_code = None
+
+        if error is None:
+            try:
+                chart_spec, chart_code, chart_max_rows_errors = (
+                    _get_altair_chart(request, table, summary)
+                )
+            except Exception as e:
+                error = str(e)
+                LOGGER.warning(
+                    "Failed to get chart for column %s in table %s",
+                    column_name,
+                    table_name,
+                    exc_info=e,
+                )
+
+        return DataColumnPreview(
+            table_name=table_name,
+            column_name=column_name,
+            chart_max_rows_errors=chart_max_rows_errors,
+            chart_spec=chart_spec,
+            chart_code=chart_code,
+            summary=summary,
+            error=error,
+        )
+    except Exception as e:
+        LOGGER.warning(
+            "Failed to get preview for column %s in table %s",
+            column_name,
+            table_name,
+            exc_info=e,
+        )
+        return DataColumnPreview(
+            table_name=table_name,
+            column_name=column_name,
+            error=str(e),
+        )
+
+#+END_SRC
+** Function get_column_preview_for_sql
+#+BEGIN_SRC python
+def get_column_preview_for_sql(
+    table_name: str,
+    column_name: str,
+) -> Optional[DataColumnPreview]:
+    # Only show column previews for in-memory tables
+    # otherwise we could be making requests to postgres/mysql/etc
+    # that the user may not intend to do so.
+    if not table_name.startswith("memory.main."):
+        return DataColumnPreview(
+            table_name=table_name,
+            column_name=column_name,
+            error="Previews only supported for in-memory tables",
+        )
+    query_table_name = table_name.replace("memory.main.", "")
+
+    column_type = get_column_type(query_table_name, column_name)
+    summary = get_sql_summary(query_table_name, column_name, column_type)
+    histogram_data = get_histogram_data(query_table_name, column_name)
+
+    # Generate Altair chart
+    chart_spec = None
+    chart_code = None
+    chart_max_rows_errors = False
+
+    if histogram_data and DependencyManager.altair.has():
+        chart_builder = get_chart_builder(column_type, False)
+        try:
+            chart_spec = chart_builder.altair_json(histogram_data, column_name)
+        except Exception as e:
+            LOGGER.warning(f"Failed to generate Altair chart: {str(e)}")
+
+    return DataColumnPreview(
+        table_name=table_name,
+        column_name=column_name,
+        chart_max_rows_errors=chart_max_rows_errors,
+        chart_spec=chart_spec,
+        chart_code=chart_code,
+        summary=summary,
+        error=None,
+    )
+
+#+END_SRC
+** Function _get_altair_chart
+#+BEGIN_SRC python
+def _get_altair_chart(
+    request: PreviewDatasetColumnRequest,
+    table: TableManager[Any],
+    summary: ColumnSummary,
+) -> tuple[Optional[str], Optional[str], bool]:
+    # We require altair to render the chart
+    if not DependencyManager.altair.has() or not table.supports_altair():
+        return None, None, False
+
+    import altair as alt  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+    from altair import (  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+        MaxRowsError,
+    )
+
+    (column_type, _external_type) = table.get_field_type(request.column_name)
+
+    if summary.total == 0:
+        return None, None, False
+
+    # For categorical columns with more than 10 unique values,
+    # we limit the chart to 10 items
+    should_limit_to_10_items = False
+    if (
+        column_type == "string"
+        and summary.unique is not None
+        and summary.unique > 10
+    ):
+        should_limit_to_10_items = True
+
+    chart_builder = get_chart_builder(column_type, should_limit_to_10_items)
+    code = chart_builder.altair_code(
+        request.table_name,
+        request.column_name,
+    )
+
+    chart_max_rows_errors = False
+    try:
+        column_data = table.select_columns([request.column_name]).data
+        # Date types don't serialize well to csv,
+        # so we don't transform them
+        if (
+            column_type == "date"
+            or column_type == "datetime"
+            or column_type == "time"
+        ):
+            # Default max_rows is 5_000, but we can support more.
+            with alt.data_transformers.enable("default", max_rows=20_000):
+                chart_json = chart_builder.altair_json(
+                    column_data,
+                    request.column_name,
+                )
+        else:
+            with alt.data_transformers.enable("marimo_inline_csv"):
+                chart_json = chart_builder.altair_json(
+                    column_data,
+                    request.column_name,
+                )
+    except MaxRowsError:
+        chart_json = None
+        chart_max_rows_errors = True
+
+    return chart_json, code, chart_max_rows_errors
+
+#+END_SRC
+* series
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._data.series
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_data/series.py
+:END:
+** Assignment DataFrameSeries = Any
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import datetime
+from dataclasses import dataclass
+from typing import Any, cast
+
+import narwhals.stable.v1 as nw
+
+from marimo._utils.narwhals_utils import (
+    assert_narwhals_series,
+    unwrap_py_scalar,
+)
+
+# TODO: use series type when released
+# https://github.com/narwhals-dev/narwhals/pull/991
+DataFrameSeries = Any
+
+#+END_SRC
+** @dataclass: Class NumberSeriesInfo
+#+BEGIN_SRC python
+@dataclass
+class NumberSeriesInfo:
+    """
+    Represents a summary of a numeric series.
+    """
+
+    min: float
+    max: float
+    label: str
+
+#+END_SRC
+** @dataclass: Class CategorySeriesInfo
+#+BEGIN_SRC python
+@dataclass
+class CategorySeriesInfo:
+    """
+    Represents a summary of a categorical series.
+    """
+
+    categories: list[str]
+    label: str
+
+#+END_SRC
+** @dataclass: Class DateSeriesInfo
+#+BEGIN_SRC python
+@dataclass
+class DateSeriesInfo:
+    """
+    Represents a summary of a date series.
+    """
+
+    min: str
+    max: str
+    label: str
+
+#+END_SRC
+** Function _get_name
+#+BEGIN_SRC python
+def _get_name(series: nw.Series) -> str:
+    if series.name is None:
+        return ""
+    return str(series.name)
+
+#+END_SRC
+** @nw.narwhalify(eager_or_interchange_only=True, series_only=True): Function get_number_series_info
+#+BEGIN_SRC python
+@nw.narwhalify(eager_or_interchange_only=True, series_only=True)
+def get_number_series_info(series: nw.Series) -> NumberSeriesInfo:
+    """
+    Get the summary of a numeric series.
+    """
+    assert_narwhals_series(series)
+
+    def validate_number(value: Any) -> float:
+        value = unwrap_py_scalar(value)
+        value = float(value)
+        if not isinstance(value, (int, float)):
+            raise ValueError("Expected a number. Got: " + str(type(value)))
+        return value
+
+    return NumberSeriesInfo(
+        min=validate_number(series.min()),
+        max=validate_number(series.max()),
+        label=_get_name(series),
+    )
+
+#+END_SRC
+** @nw.narwhalify(eager_or_interchange_only=True, series_only=True): Function get_category_series_info
+#+BEGIN_SRC python
+@nw.narwhalify(eager_or_interchange_only=True, series_only=True)
+def get_category_series_info(series: nw.Series) -> CategorySeriesInfo:
+    """
+    Get the summary of a categorical series.
+    """
+    assert_narwhals_series(series)
+
+    return CategorySeriesInfo(
+        categories=sorted(series.unique().to_list()),
+        label=_get_name(series),
+    )
+
+#+END_SRC
+** @nw.narwhalify(eager_or_interchange_only=True, series_only=True): Function get_date_series_info
+#+BEGIN_SRC python
+@nw.narwhalify(eager_or_interchange_only=True, series_only=True)
+def get_date_series_info(series: nw.Series) -> DateSeriesInfo:
+    """
+    Get the summary of a date series.
+    """
+    assert_narwhals_series(series)
+
+    def validate_date(value: Any) -> str:
+        value = unwrap_py_scalar(value)
+        if isinstance(value, datetime.date):
+            return value.strftime("%Y-%m-%d")
+        if hasattr(value, "strftime"):
+            return cast(str, value.strftime("%Y-%m-%d"))
+        raise ValueError("Expected a date. Got: " + str(type(value)))
+
+    return DateSeriesInfo(
+        min=validate_date(series.min()),
+        max=validate_date(series.max()),
+        label=_get_name(series),
+    )
+
+#+END_SRC
+** @nw.narwhalify(eager_or_interchange_only=True, series_only=True): Function get_datetime_series_info
+#+BEGIN_SRC python
+@nw.narwhalify(eager_or_interchange_only=True, series_only=True)
+def get_datetime_series_info(series: nw.Series) -> DateSeriesInfo:
+    """
+    Get the summary of a datetime series.
+    """
+    assert_narwhals_series(series)
+
+    def validate_datetime(value: Any) -> str:
+        value = unwrap_py_scalar(value)
+        if isinstance(value, datetime.datetime):
+            return value.strftime("%Y-%m-%dT%H:%M:%S")
+        if isinstance(value, datetime.date):
+            # Convert date to datetime
+            value = datetime.datetime(value.year, value.month, value.day)
+            return value.strftime("%Y-%m-%d")
+        if hasattr(value, "strftime"):
+            return cast(str, value.strftime("%Y-%m-%d"))
+        raise ValueError("Expected a datetime. Got: " + str(type(value)))
+
+    return DateSeriesInfo(
+        min=validate_datetime(series.min()),
+        max=validate_datetime(series.max()),
+        label=_get_name(series),
+    )
+
+#+END_SRC
+* sql_summaries
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._data.sql_summaries
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_data/sql_summaries.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import List, Tuple
+
+from marimo._data.get_datasets import _db_type_to_data_type
+from marimo._data.models import ColumnSummary, DataType
+from marimo._sql.sql import _wrapped_sql
+
+#+END_SRC
+** Function get_sql_summary
+#+BEGIN_SRC python
+def get_sql_summary(
+    table_name: str, column_name: str, column_type: DataType
+) -> ColumnSummary:
+    """
+    Get a summary of a column in a SQL table.
+    """
+
+    # Prepare the stats query based on the column type
+    if column_type in ("integer", "number"):
+        stats_query = f"""
+        SELECT
+            COUNT(*) as count,
+            COUNT(DISTINCT "{column_name}") as unique,
+            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) as null_count,
+            MIN("{column_name}") as min,
+            MAX("{column_name}") as max,
+            AVG("{column_name}") as mean,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "{column_name}") as median,
+            STDDEV("{column_name}") as std,
+            PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY "{column_name}") as p5,
+            PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY "{column_name}") as p25,
+            PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY "{column_name}") as p75,
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "{column_name}") as p95
+        FROM {table_name}
+        """  # noqa: E501
+    elif (
+        column_type == "date"
+        or column_type == "datetime"
+        or column_type == "time"
+    ):
+        stats_query = f"""
+        SELECT
+            COUNT(*) as count,
+            COUNT(DISTINCT "{column_name}") as unique,
+            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) as null_count,
+            MIN("{column_name}") as min,
+            MAX("{column_name}") as max
+        FROM {table_name}
+        """  # noqa: E501
+    elif column_type == "boolean":
+        stats_query = f"""
+        SELECT
+            COUNT(*) as count,
+            COUNT(DISTINCT "{column_name}") as unique,
+            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) as null_count,
+            SUM(CASE WHEN "{column_name}" = TRUE THEN 1 ELSE 0 END) as true_count,
+            SUM(CASE WHEN "{column_name}" = FALSE THEN 1 ELSE 0 END) as false_count
+        FROM {table_name}
+        """  # noqa: E501
+    else:
+        stats_query = f"""
+        SELECT
+            COUNT(*) as count,
+            COUNT(DISTINCT "{column_name}") as unique,
+            SUM(CASE WHEN "{column_name}" IS NULL THEN 1 ELSE 0 END) as null_count
+        FROM {table_name}
+        """  # noqa: E501
+
+    stats_result: Tuple[int, ...] | None = _wrapped_sql(stats_query).fetchone()
+    if stats_result is None:
+        raise ValueError(
+            f"Column {column_name} not found in table {table_name}"
+        )
+
+    if column_type in ("integer", "number"):
+        (
+            count,
+            unique,
+            null_count,
+            min_val,
+            max_val,
+            mean,
+            median,
+            std,
+            p5,
+            p25,
+            p75,
+            p95,
+        ) = stats_result
+        return ColumnSummary(
+            total=count,
+            unique=unique,
+            nulls=null_count,
+            min=min_val,
+            max=max_val,
+            mean=mean,
+            median=median,
+            std=std,
+            p5=p5,
+            p25=p25,
+            p75=p75,
+            p95=p95,
+        )
+    elif (
+        column_type == "date"
+        or column_type == "datetime"
+        or column_type == "time"
+    ):
+        count, unique, null_count, min_val, max_val = stats_result
+        return ColumnSummary(
+            total=count,
+            unique=unique,
+            nulls=null_count,
+            min=min_val,
+            max=max_val,
+        )
+    elif column_type == "boolean":
+        count, unique, null_count, true_count, false_count = stats_result
+        return ColumnSummary(
+            total=count,
+            unique=unique,
+            nulls=null_count,
+            true=true_count,
+            false=false_count,
+        )
+    else:
+        count, unique, null_count = stats_result
+        return ColumnSummary(total=count, unique=unique, nulls=null_count)
+
+#+END_SRC
+** Function get_column_type
+#+BEGIN_SRC python
+def get_column_type(table_name: str, column_name: str) -> DataType:
+    """
+    Get the type of a column in a SQL table.
+    """
+
+    # First, get the column info and data type
+    column_info_query = f"""
+    SELECT data_type
+    FROM information_schema.columns
+    WHERE table_name = '{table_name}'
+    AND column_name = '{column_name}'
+    """
+
+    column_info_result: Tuple[str] | None = _wrapped_sql(
+        column_info_query
+    ).fetchone()
+    if column_info_result is None:
+        raise ValueError(
+            f"Column {column_name} not found in table {table_name}"
+        )
+
+    db_column_type = column_info_result[0].lower()
+    return _db_type_to_data_type(db_column_type)
+
+#+END_SRC
+** Function get_histogram_data
+#+BEGIN_SRC python
+def get_histogram_data(
+    table_name: str, column_name: str
+) -> List[Tuple[str, int]]:
+    """
+    Get the histogram data for a column in a SQL table.
+    """
+    del table_name, column_name
+    # TODO: Implement this
+
+    return []
+
+#+END_SRC

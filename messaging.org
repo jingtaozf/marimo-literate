@@ -1,0 +1,1714 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._messaging
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/__init__.py
+:END:
+** Comment
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+#+END_SRC
+* Specification of a cell's visual output
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.cell_output
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/cell_output.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""Specification of a cell's visual output"""
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+from __future__ import annotations
+
+import time
+from dataclasses import asdict, dataclass, field
+from enum import Enum
+from typing import Any, Dict, Sequence, Union
+
+from marimo._messaging.errors import Error
+from marimo._messaging.mimetypes import KnownMimeType
+
+#+END_SRC
+** Class CellChannel
+#+BEGIN_SRC python
+class CellChannel(str, Enum):
+    """The channel of a cell's output."""
+
+    STDOUT = "stdout"
+    STDERR = "stderr"
+    STDIN = "stdin"
+    PDB = "pdb"
+    OUTPUT = "output"
+    MARIMO_ERROR = "marimo-error"
+    MEDIA = "media"
+
+    def __repr__(self) -> str:
+        return self.value
+
+#+END_SRC
+** @dataclass: Class CellOutput
+#+BEGIN_SRC python
+@dataclass
+class CellOutput:
+    # descriptive name about the kind of output: e.g., stdout, stderr, ...
+    channel: CellChannel
+    mimetype: KnownMimeType
+    data: Union[str, Sequence[Error], Dict[str, Any]]
+    timestamp: float = field(default_factory=lambda: time.time())
+
+    def asdict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @staticmethod
+    def stdout(data: str) -> CellOutput:
+        return CellOutput(
+            channel=CellChannel.STDOUT,
+            mimetype="text/plain",
+            data=data,
+        )
+
+    @staticmethod
+    def stderr(data: str) -> CellOutput:
+        return CellOutput(
+            channel=CellChannel.STDERR,
+            mimetype="text/plain",
+            data=data,
+        )
+
+    @staticmethod
+    def stdin(data: str) -> CellOutput:
+        return CellOutput(
+            channel=CellChannel.STDIN, mimetype="text/plain", data=data
+        )
+
+#+END_SRC
+* Specification of a code completion result
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.completion_option
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/completion_option.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""Specification of a code completion result"""
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional
+
+#+END_SRC
+** @dataclass: Class CompletionOption
+#+BEGIN_SRC python
+@dataclass
+class CompletionOption:
+    # completed symbol name
+    name: str
+    # type of symbol
+    type: str
+    # docstring, type hint, or other info
+    completion_info: Optional[str]
+
+    def __post_init__(self) -> None:
+        # Remove trailing quotes because frontends may automatically add quotes
+        self.name = self.name.rstrip('"').rstrip("'")
+
+#+END_SRC
+* console_output_worker
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.console_output_worker
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/console_output_worker.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
+
+from marimo._ast.cell import CellId_t
+from marimo._messaging.cell_output import CellChannel, CellOutput
+from marimo._messaging.mimetypes import KnownMimeType
+
+#+END_SRC
+** Assignment StreamT = Literal[CellChannel.STDERR, CellChannel.STDOUT, CellChannel.STDIN]
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from collections import deque
+    from threading import Condition
+    from typing import Optional
+
+    from marimo._messaging.types import Stream
+
+StreamT = Literal[CellChannel.STDERR, CellChannel.STDOUT, CellChannel.STDIN]
+
+#+END_SRC
+** Assignment TIMEOUT_S = 0.01
+#+BEGIN_SRC python
+# Flush console outputs every 10ms
+TIMEOUT_S = 0.01
+
+#+END_SRC
+** @dataclass: Class ConsoleMsg
+#+BEGIN_SRC python
+@dataclass
+class ConsoleMsg:
+    stream: StreamT
+    cell_id: CellId_t
+    data: str
+    mimetype: KnownMimeType
+
+#+END_SRC
+** Function _write_console_output
+#+BEGIN_SRC python
+def _write_console_output(
+    stream: Stream,
+    stream_type: StreamT,
+    cell_id: CellId_t,
+    data: str,
+    mimetype: KnownMimeType,
+) -> None:
+    from marimo._messaging.ops import CellOp
+
+    CellOp(
+        cell_id=cell_id,
+        console=CellOutput(
+            channel=stream_type,
+            mimetype=mimetype,
+            data=data,
+        ),
+    ).broadcast(stream)
+
+#+END_SRC
+** Function _can_merge_outputs
+#+BEGIN_SRC python
+def _can_merge_outputs(first: ConsoleMsg, second: ConsoleMsg) -> bool:
+    return first.stream == second.stream and first.mimetype == second.mimetype
+
+#+END_SRC
+** Function _add_output_to_buffer
+#+BEGIN_SRC python
+def _add_output_to_buffer(
+    console_output: ConsoleMsg,
+    outputs_buffered_per_cell: dict[CellId_t, list[ConsoleMsg]],
+) -> None:
+    cell_id = console_output.cell_id
+    buffer = (
+        outputs_buffered_per_cell[cell_id]
+        if cell_id in outputs_buffered_per_cell
+        else None
+    )
+    if buffer and _can_merge_outputs(buffer[-1], console_output):
+        buffer[-1].data += console_output.data
+    elif buffer:
+        buffer.append(console_output)
+    else:
+        outputs_buffered_per_cell[cell_id] = [console_output]
+
+#+END_SRC
+** Function buffered_writer
+#+BEGIN_SRC python
+def buffered_writer(
+    msg_queue: deque[ConsoleMsg],
+    stream: Stream,
+    cv: Condition,
+) -> None:
+    """
+    Writes standard out and standard error to frontend in batches
+
+    Buffers console messages, writing them out in batches. A condition
+    variable is used to synchronize access to `msg_queue`, and to obtain
+    notifications when messages have been added. (A deque + condition variable
+    was noticeably faster than the builtin queue.Queue in testing.)
+    """
+
+    # only have a non-None timer when there's at least one output buffered
+    #
+    # when the timer expires, all buffered outputs are flushed
+    timer: Optional[float] = None
+
+    outputs_buffered_per_cell: dict[CellId_t, list[ConsoleMsg]] = {}
+    while True:
+        with cv:
+            # We wait for messages until the timer (if any) expires
+            while timer is None or timer > 0:
+                time_started_waiting = time.time()
+                # if the timer is set or if the message queue is empty, wait;
+                # otherwise, no timer is set but we received a message, so
+                # process it
+                if timer is not None or not msg_queue:
+                    cv.wait(timeout=timer)
+                while msg_queue:
+                    _add_output_to_buffer(
+                        msg_queue.popleft(), outputs_buffered_per_cell
+                    )
+                if outputs_buffered_per_cell and timer is None:
+                    # start the timeout timer
+                    timer = TIMEOUT_S
+                elif timer is not None:
+                    time_waited = time.time() - time_started_waiting
+                    timer -= time_waited
+
+        # the timer has expired: flush the outputs
+        for cell_id, buffer in outputs_buffered_per_cell.items():
+            for output in buffer:
+                _write_console_output(
+                    stream,
+                    output.stream,
+                    cell_id,
+                    output.data,
+                    output.mimetype,
+                )
+        outputs_buffered_per_cell = {}
+        timer = None
+
+#+END_SRC
+* errors
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.errors
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/errors.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal, Optional, Union
+
+from marimo._ast.cell import CellId_t
+from marimo._runtime.dataflow import EdgeWithVar
+
+#+END_SRC
+** @dataclass: Class CycleError
+#+BEGIN_SRC python
+@dataclass
+class CycleError:
+    edges_with_vars: tuple[EdgeWithVar, ...]
+    type: Literal["cycle"] = "cycle"
+
+#+END_SRC
+** @dataclass: Class MultipleDefinitionError
+#+BEGIN_SRC python
+@dataclass
+class MultipleDefinitionError:
+    name: str
+    cells: tuple[CellId_t, ...]
+    type: Literal["multiple-defs"] = "multiple-defs"
+
+#+END_SRC
+** @dataclass: Class DeleteNonlocalError
+#+BEGIN_SRC python
+@dataclass
+class DeleteNonlocalError:
+    name: str
+    cells: tuple[CellId_t, ...]
+    type: Literal["delete-nonlocal"] = "delete-nonlocal"
+
+#+END_SRC
+** @dataclass: Class MarimoInterruptionError
+#+BEGIN_SRC python
+@dataclass
+class MarimoInterruptionError:
+    type: Literal["interruption"] = "interruption"
+
+#+END_SRC
+** @dataclass: Class MarimoAncestorPreventedError
+#+BEGIN_SRC python
+@dataclass
+class MarimoAncestorPreventedError:
+    msg: str
+    raising_cell: CellId_t
+    blamed_cell: Optional[CellId_t]
+    type: Literal["ancestor-prevented"] = "ancestor-prevented"
+
+#+END_SRC
+** @dataclass: Class MarimoAncestorStoppedError
+#+BEGIN_SRC python
+@dataclass
+class MarimoAncestorStoppedError:
+    msg: str
+    raising_cell: CellId_t
+    type: Literal["ancestor-stopped"] = "ancestor-stopped"
+
+#+END_SRC
+** @dataclass: Class MarimoExceptionRaisedError
+#+BEGIN_SRC python
+@dataclass
+class MarimoExceptionRaisedError:
+    msg: str
+    exception_type: str
+    # None for if raising_cell is the current cell
+    raising_cell: Optional[CellId_t]
+    type: Literal["exception"] = "exception"
+
+#+END_SRC
+** @dataclass: Class MarimoSyntaxError
+#+BEGIN_SRC python
+@dataclass
+class MarimoSyntaxError:
+    msg: str
+    type: Literal["syntax"] = "syntax"
+
+#+END_SRC
+** @dataclass: Class UnknownError
+#+BEGIN_SRC python
+@dataclass
+class UnknownError:
+    msg: str
+    type: Literal["unknown"] = "unknown"
+
+#+END_SRC
+** @dataclass: Class MarimoStrictExecutionError
+#+BEGIN_SRC python
+@dataclass
+class MarimoStrictExecutionError:
+    msg: str
+    ref: str
+    blamed_cell: Optional[CellId_t]
+    type: Literal["strict-exception"] = "strict-exception"
+
+#+END_SRC
+** Assignment Error
+#+BEGIN_SRC python
+Error = Union[
+    CycleError,
+    MultipleDefinitionError,
+    DeleteNonlocalError,
+    MarimoAncestorStoppedError,
+    MarimoAncestorPreventedError,
+    MarimoExceptionRaisedError,
+    MarimoStrictExecutionError,
+    MarimoInterruptionError,
+    MarimoSyntaxError,
+    UnknownError,
+]
+
+#+END_SRC
+* mimetypes
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.mimetypes
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/mimetypes.py
+:END:
+** Assignment KnownMimeType
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any, Dict, Literal, Tuple, Union
+
+# It is convenient to write mimetypes as strings,
+# but can lead to typos. This literal type
+# helps us avoid typos.
+KnownMimeType = Literal[
+    "application/json",
+    "application/vnd.marimo+error",
+    "application/vnd.marimo+traceback",
+    "application/vnd.marimo+mimebundle",
+    "application/vnd.vega.v5+json",
+    "application/vnd.vegalite.v5+json",
+    "image/png",
+    "image/svg+xml",
+    "image/tiff",
+    "image/avif",
+    "image/bmp",
+    "image/gif",
+    "image/jpeg",
+    "video/mp4",
+    "video/mpeg",
+    "text/html",
+    "text/plain",
+    "text/markdown",
+    "text/latex",
+    "text/csv",
+]
+
+#+END_SRC
+** Assignment MimeBundle = Dict[KnownMimeType, Any]
+#+BEGIN_SRC python
+MimeBundle = Dict[KnownMimeType, Any]
+
+#+END_SRC
+** Assignment MimeBundleOrTuple = Union[MimeBundle, Tuple[MimeBundle, Any]]
+#+BEGIN_SRC python
+MimeBundleOrTuple = Union[MimeBundle, Tuple[MimeBundle, Any]]
+
+#+END_SRC
+* Message Types
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.ops
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/ops.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""Message Types
+
+Messages that the kernel sends to the frontend.
+"""
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+from __future__ import annotations
+
+import json
+import sys
+import time
+from dataclasses import asdict, dataclass, field
+from types import ModuleType
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    cast,
+)
+
+from marimo import _loggers as loggers
+from marimo._ast.app import _AppConfig
+from marimo._ast.cell import CellConfig, CellId_t, RuntimeStateType
+from marimo._data.models import ColumnSummary, DataTable, DataTableSource
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._messaging.cell_output import CellChannel, CellOutput
+from marimo._messaging.completion_option import CompletionOption
+from marimo._messaging.errors import Error
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._messaging.streams import OUTPUT_MAX_BYTES
+from marimo._messaging.types import Stream
+from marimo._output.hypertext import Html
+from marimo._plugins.core.json_encoder import WebComponentEncoder
+from marimo._plugins.core.web_component import JSONType
+from marimo._plugins.ui._core.ui_element import UIElement
+from marimo._plugins.ui._impl.tables.utils import get_table_manager_or_none
+from marimo._runtime.context import get_context
+from marimo._runtime.layout.layout import LayoutConfig
+from marimo._utils.platform import is_pyodide, is_windows
+
+#+END_SRC
+** Assignment LOGGER = loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = loggers.marimo_logger()
+
+#+END_SRC
+** Function serialize
+#+BEGIN_SRC python
+def serialize(datacls: Any) -> Dict[str, JSONType]:
+    # TODO(akshayka): maybe serialize as bytes (JSON), not objects ...,
+    # then `send_bytes` over connection ... to try to avoid pickling
+    # issues
+    try:
+        # Try to serialize as a dataclass
+        return cast(
+            Dict[str, JSONType],
+            asdict(datacls),
+        )
+    except Exception:
+        # If that fails, try to serialize using the WebComponentEncoder
+        return cast(
+            Dict[str, JSONType],
+            json.loads(WebComponentEncoder.json_dumps(datacls)),
+        )
+
+#+END_SRC
+** @dataclass: Class Op
+#+BEGIN_SRC python
+@dataclass
+class Op:
+    name: ClassVar[str]
+
+    # TODO(akshayka): fix typing once mypy has stricter typing for asdict
+    def broadcast(self, stream: Optional[Stream] = None) -> None:
+        from marimo._runtime.context.types import ContextNotInitializedError
+
+        if stream is None:
+            try:
+                ctx = get_context()
+            except ContextNotInitializedError:
+                LOGGER.debug("No context initialized.")
+                return
+            else:
+                stream = ctx.stream
+
+        try:
+            stream.write(op=self.name, data=self.serialize())
+        except Exception as e:
+            LOGGER.exception(
+                "Error serializing op %s: %s",
+                self.__class__.__name__,
+                e,
+            )
+            return
+
+    def serialize(self) -> dict[str, Any]:
+        return serialize(self)
+
+#+END_SRC
+** @dataclass: Class CellOp
+#+BEGIN_SRC python
+@dataclass
+class CellOp(Op):
+    """Op to transition a cell.
+
+    A CellOp's data has three optional fields:
+
+    output       - a CellOutput
+    console      - a CellOutput (console msg to append), or a list of
+                   CellOutputs
+    status       - execution status
+    stale_inputs - whether the cell has stale inputs (variables, modules, ...)
+
+    Omitting a field means that its value should be unchanged!
+
+    And one required field:
+
+    cell_id - the cell id
+    """
+
+    name: ClassVar[str] = "cell-op"
+    cell_id: CellId_t
+    output: Optional[CellOutput] = None
+    console: Optional[Union[CellOutput, List[CellOutput]]] = None
+    status: Optional[RuntimeStateType] = None
+    stale_inputs: Optional[bool] = None
+    timestamp: float = field(default_factory=lambda: time.time())
+
+    @staticmethod
+    def maybe_truncate_output(
+        mimetype: KnownMimeType, data: str
+    ) -> tuple[KnownMimeType, str]:
+        if (size := sys.getsizeof(data)) > OUTPUT_MAX_BYTES:
+            from marimo._output.md import md
+            from marimo._plugins.stateless.callout import callout
+
+            text = f"""
+                <span class="text-error">**Your output is too large**</span>
+
+                Your output is too large for marimo to show. It has a size
+                of {size} bytes. Did you output this object by accident?
+
+                If this limitation is a problem for you, you can configure
+                the max output size with the environment variable
+                `MARIMO_OUTPUT_MAX_BYTES`. For example, to increase
+                the max output to 10 MB, use:
+
+                ```
+                export MARIMO_OUTPUT_MAX_BYTES=10_000_000
+                ```
+
+                Increasing the max output size may cause performance issues.
+                If you run into problems, please reach out
+                to us on [Discord](https://marimo.io/discord?ref=app) or
+                [GitHub](https://github.com/marimo-team/marimo/issues).
+                """
+
+            warning = callout(
+                md(text),
+                kind="warn",
+            )
+            mimetype, data = warning._mime_()
+        return mimetype, data
+
+    @staticmethod
+    def broadcast_output(
+        channel: CellChannel,
+        mimetype: KnownMimeType,
+        data: str,
+        cell_id: Optional[CellId_t],
+        status: Optional[RuntimeStateType],
+        stream: Stream | None = None,
+    ) -> None:
+        mimetype, data = CellOp.maybe_truncate_output(mimetype, data)
+        cell_id = (
+            cell_id if cell_id is not None else get_context().stream.cell_id
+        )
+        assert cell_id is not None
+        CellOp(
+            cell_id=cell_id,
+            output=CellOutput(
+                channel=channel,
+                mimetype=mimetype,
+                data=data,
+            ),
+            status=status,
+        ).broadcast(stream=stream)
+
+    @staticmethod
+    def broadcast_empty_output(
+        cell_id: Optional[CellId_t],
+        status: Optional[RuntimeStateType],
+        stream: Stream | None = None,
+    ) -> None:
+        cell_id = (
+            cell_id if cell_id is not None else get_context().stream.cell_id
+        )
+        assert cell_id is not None
+        CellOp(
+            cell_id=cell_id,
+            output=CellOutput(
+                channel=CellChannel.OUTPUT,
+                mimetype="text/plain",
+                data="",
+            ),
+            status=status,
+        ).broadcast(stream=stream)
+
+    @staticmethod
+    def broadcast_console_output(
+        channel: CellChannel,
+        mimetype: KnownMimeType,
+        data: str,
+        cell_id: Optional[CellId_t],
+        status: Optional[RuntimeStateType],
+        stream: Stream | None = None,
+    ) -> None:
+        mimetype, data = CellOp.maybe_truncate_output(mimetype, data)
+        cell_id = (
+            cell_id if cell_id is not None else get_context().stream.cell_id
+        )
+        assert cell_id is not None
+        CellOp(
+            cell_id=cell_id,
+            console=CellOutput(
+                channel=channel,
+                mimetype=mimetype,
+                data=data,
+            ),
+            status=status,
+        ).broadcast(stream=stream)
+
+    @staticmethod
+    def broadcast_status(
+        cell_id: CellId_t,
+        status: RuntimeStateType,
+        stream: Stream | None = None,
+    ) -> None:
+        if status != "running":
+            CellOp(cell_id=cell_id, status=status).broadcast()
+        else:
+            # Console gets cleared on "running"
+            CellOp(cell_id=cell_id, console=[], status=status).broadcast(
+                stream=stream
+            )
+
+    @staticmethod
+    def broadcast_error(
+        data: Sequence[Error],
+        clear_console: bool,
+        cell_id: CellId_t,
+    ) -> None:
+        console: Optional[list[CellOutput]] = [] if clear_console else None
+        CellOp(
+            cell_id=cell_id,
+            output=CellOutput(
+                channel=CellChannel.MARIMO_ERROR,
+                mimetype="application/vnd.marimo+error",
+                data=data,
+            ),
+            console=console,
+            status=None,
+        ).broadcast()
+
+    @staticmethod
+    def broadcast_stale(
+        cell_id: CellId_t, stale: bool, stream: Stream | None = None
+    ) -> None:
+        CellOp(cell_id=cell_id, stale_inputs=stale).broadcast(stream)
+
+#+END_SRC
+** @dataclass: Class HumanReadableStatus
+#+BEGIN_SRC python
+@dataclass
+class HumanReadableStatus:
+    """Human-readable status."""
+
+    code: Literal["ok", "error"]
+    title: Union[str, None] = None
+    message: Union[str, None] = None
+
+#+END_SRC
+** @dataclass: Class FunctionCallResult
+#+BEGIN_SRC python
+@dataclass
+class FunctionCallResult(Op):
+    """Result of calling a function."""
+
+    name: ClassVar[str] = "function-call-result"
+
+    function_call_id: str
+    return_value: JSONType
+    status: HumanReadableStatus
+
+    def __post_init__(self) -> None:
+        # We want to serialize the return_value using our custom JSON encoder
+        try:
+            self.return_value = json.loads(
+                WebComponentEncoder.json_dumps(self.return_value)
+            )
+        except Exception as e:
+            LOGGER.exception(
+                "Error serializing function call result %s: %s",
+                self.__class__.__name__,
+                e,
+            )
+
+    def serialize(self) -> dict[str, Any]:
+        try:
+            return serialize(self)
+        except Exception as e:
+            LOGGER.exception(
+                "Error serializing function call result %s: %s",
+                self.__class__.__name__,
+                e,
+            )
+            return serialize(
+                FunctionCallResult(
+                    function_call_id=self.function_call_id,
+                    return_value=None,
+                    status=HumanReadableStatus(
+                        code="error",
+                        title="Error calling function",
+                        message="Failed to serialize function call result",
+                    ),
+                )
+            )
+
+#+END_SRC
+** @dataclass: Class RemoveUIElements
+#+BEGIN_SRC python
+@dataclass
+class RemoveUIElements(Op):
+    """Invalidate UI elements for a given cell."""
+
+    name: ClassVar[str] = "remove-ui-elements"
+    cell_id: CellId_t
+
+#+END_SRC
+** @dataclass: Class SendUIElementMessage
+#+BEGIN_SRC python
+@dataclass
+class SendUIElementMessage(Op):
+    """Send a message to a UI element."""
+
+    name: ClassVar[str] = "send-ui-element-message"
+    ui_element: str
+    message: Dict[str, object]
+    buffers: Optional[Sequence[str]]
+
+#+END_SRC
+** @dataclass: Class Interrupted
+#+BEGIN_SRC python
+@dataclass
+class Interrupted(Op):
+    """Written when the kernel is interrupted by the user."""
+
+    name: ClassVar[str] = "interrupted"
+
+#+END_SRC
+** @dataclass: Class CompletedRun
+#+BEGIN_SRC python
+@dataclass
+class CompletedRun(Op):
+    """Written on run completion (of submitted cells and their descendants."""
+
+    name: ClassVar[str] = "completed-run"
+
+#+END_SRC
+** @dataclass: Class KernelCapabilities
+#+BEGIN_SRC python
+@dataclass
+class KernelCapabilities:
+    sql: bool = False
+    terminal: bool = False
+
+    def __post_init__(self) -> None:
+        self.sql = DependencyManager.duckdb.has_at_version(min_version="1.0.0")
+        # Only available in mac/linux
+        self.terminal = not is_windows() and not is_pyodide()
+
+#+END_SRC
+** @dataclass: Class KernelReady
+#+BEGIN_SRC python
+@dataclass
+class KernelReady(Op):
+    """Kernel is ready for execution."""
+
+    name: ClassVar[str] = "kernel-ready"
+    cell_ids: Tuple[CellId_t, ...]
+    codes: Tuple[str, ...]
+    names: Tuple[str, ...]
+    layout: Optional[LayoutConfig]
+    configs: Tuple[CellConfig, ...]
+    # Whether the kernel was resumed from a previous session
+    resumed: bool
+    # If the kernel was resumed, the values of the UI elements
+    ui_values: Optional[Dict[str, JSONType]]
+    # If the kernel was resumed, the last executed code for each cell
+    last_executed_code: Optional[Dict[CellId_t, str]]
+    # If the kernel was resumed, the last execution time for each cell
+    last_execution_time: Optional[Dict[CellId_t, float]]
+    # App config
+    app_config: _AppConfig
+    # Whether the kernel is kiosk mode
+    kiosk: bool
+    # Kernel capabilities
+    capabilities: KernelCapabilities
+
+#+END_SRC
+** @dataclass: Class CompletionResult
+#+BEGIN_SRC python
+@dataclass
+class CompletionResult(Op):
+    """Code completion result."""
+
+    name: ClassVar[str] = "completion-result"
+    completion_id: str
+    prefix_length: int
+    options: List[CompletionOption]
+
+#+END_SRC
+** @dataclass: Class Alert
+#+BEGIN_SRC python
+@dataclass
+class Alert(Op):
+    name: ClassVar[str] = "alert"
+    title: str
+    # description may be HTML
+    description: str
+    variant: Optional[Literal["danger"]] = None
+
+#+END_SRC
+** @dataclass: Class MissingPackageAlert
+#+BEGIN_SRC python
+@dataclass
+class MissingPackageAlert(Op):
+    name: ClassVar[str] = "missing-package-alert"
+    packages: List[str]
+    isolated: bool
+
+#+END_SRC
+** Assignment PackageStatusType
+#+BEGIN_SRC python
+# package name => installation status
+PackageStatusType = Dict[
+    str, Literal["queued", "installing", "installed", "failed"]
+]
+
+#+END_SRC
+** @dataclass: Class InstallingPackageAlert
+#+BEGIN_SRC python
+@dataclass
+class InstallingPackageAlert(Op):
+    name: ClassVar[str] = "installing-package-alert"
+    packages: PackageStatusType
+
+#+END_SRC
+** @dataclass: Class Reconnected
+#+BEGIN_SRC python
+@dataclass
+class Reconnected(Op):
+    name: ClassVar[str] = "reconnected"
+
+#+END_SRC
+** @dataclass: Class Banner
+#+BEGIN_SRC python
+@dataclass
+class Banner(Op):
+    name: ClassVar[str] = "banner"
+    title: str
+    # description may be HTML
+    description: str
+    variant: Optional[Literal["danger"]] = None
+    action: Optional[Literal["restart"]] = None
+
+#+END_SRC
+** @dataclass: Class Reload
+#+BEGIN_SRC python
+@dataclass
+class Reload(Op):
+    name: ClassVar[str] = "reload"
+
+#+END_SRC
+** @dataclass: Class VariableDeclaration
+#+BEGIN_SRC python
+@dataclass
+class VariableDeclaration:
+    name: str
+    declared_by: List[CellId_t]
+    used_by: List[CellId_t]
+
+#+END_SRC
+** @dataclass: Class VariableValue
+#+BEGIN_SRC python
+@dataclass
+class VariableValue:
+    name: str
+    value: Optional[str]
+    datatype: Optional[str]
+
+    def __init__(
+        self, name: str, value: object, datatype: Optional[str] = None
+    ) -> None:
+        self.name = name
+
+        # Defensively try-catch attribute accesses, which could raise
+        # exceptions
+        # If datatype is already defined, don't try to infer it
+        if datatype is None:
+            try:
+                self.datatype = (
+                    type(value).__name__ if value is not None else None
+                )
+            except Exception:
+                self.datatype = datatype
+        else:
+            self.datatype = datatype
+
+        try:
+            self.value = self._format_value(value)
+        except Exception:
+            self.value = None
+
+    def _stringify(self, value: object) -> str:
+        try:
+            # HACK: We pretty-print tables to avoid str(ibis_table)
+            # which can be very slow when `ibis.options.interactive = True`
+            table_manager = get_table_manager_or_none(value)
+            if table_manager is not None:
+                return str(table_manager)
+            else:
+                return str(value)[:50]
+
+            return str(value)[:50]
+        except BaseException:
+            # Catch-all: some libraries like Polars have bugs and raise
+            # BaseExceptions, which shouldn't crash the kernel
+            return "<UNKNOWN>"
+
+    def _format_value(self, value: object) -> str:
+        resolved = value
+        if isinstance(value, UIElement):
+            resolved = value.value
+        elif isinstance(value, Html):
+            resolved = value.text
+        elif isinstance(value, ModuleType):
+            resolved = value.__name__
+        return self._stringify(resolved)
+
+#+END_SRC
+** @dataclass: Class Variables
+#+BEGIN_SRC python
+@dataclass
+class Variables(Op):
+    """List of variable declarations."""
+
+    name: ClassVar[str] = "variables"
+    variables: List[VariableDeclaration]
+
+#+END_SRC
+** @dataclass: Class VariableValues
+#+BEGIN_SRC python
+@dataclass
+class VariableValues(Op):
+    """List of variables and their types/values."""
+
+    name: ClassVar[str] = "variable-values"
+    variables: List[VariableValue]
+
+#+END_SRC
+** @dataclass: Class Datasets
+#+BEGIN_SRC python
+@dataclass
+class Datasets(Op):
+    """List of datasets."""
+
+    name: ClassVar[str] = "datasets"
+    tables: List[DataTable]
+    clear_channel: Optional[DataTableSource] = None
+
+#+END_SRC
+** @dataclass: Class DataColumnPreview
+#+BEGIN_SRC python
+@dataclass
+class DataColumnPreview(Op):
+    """Preview of a column in a dataset."""
+
+    name: ClassVar[str] = "data-column-preview"
+    table_name: str
+    column_name: str
+    chart_spec: Optional[str] = None
+    chart_max_rows_errors: bool = False
+    chart_code: Optional[str] = None
+    error: Optional[str] = None
+    summary: Optional[ColumnSummary] = None
+
+#+END_SRC
+** @dataclass: Class QueryParamsSet
+#+BEGIN_SRC python
+@dataclass
+class QueryParamsSet(Op):
+    """Set query parameters."""
+
+    name: ClassVar[str] = "query-params-set"
+    key: str
+    value: Union[str, List[str]]
+
+#+END_SRC
+** @dataclass: Class QueryParamsAppend
+#+BEGIN_SRC python
+@dataclass
+class QueryParamsAppend(Op):
+    name: ClassVar[str] = "query-params-append"
+    key: str
+    value: str
+
+#+END_SRC
+** @dataclass: Class QueryParamsDelete
+#+BEGIN_SRC python
+@dataclass
+class QueryParamsDelete(Op):
+    name: ClassVar[str] = "query-params-delete"
+    key: str
+    # If value is None, delete all values for the key
+    # If a value is provided, only that value is deleted
+    value: Optional[str]
+
+#+END_SRC
+** @dataclass: Class QueryParamsClear
+#+BEGIN_SRC python
+@dataclass
+class QueryParamsClear(Op):
+    # Clear all query parameters
+    name: ClassVar[str] = "query-params-clear"
+
+#+END_SRC
+** @dataclass: Class FocusCell
+#+BEGIN_SRC python
+@dataclass
+class FocusCell(Op):
+    name: ClassVar[str] = "focus-cell"
+    cell_id: CellId_t
+
+#+END_SRC
+** @dataclass: Class UpdateCellCodes
+#+BEGIN_SRC python
+@dataclass
+class UpdateCellCodes(Op):
+    name: ClassVar[str] = "update-cell-codes"
+    cell_ids: List[CellId_t]
+    codes: List[str]
+
+#+END_SRC
+** @dataclass: Class UpdateCellIdsRequest
+#+BEGIN_SRC python
+@dataclass
+class UpdateCellIdsRequest(Op):
+    """
+    Update the cell ID ordering of the cells in the notebook.
+
+    Right now we send the entire list of cell IDs,
+    but in the future we might want to send change-deltas.
+    """
+
+    name: ClassVar[str] = "update-cell-ids"
+    cell_ids: List[CellId_t]
+
+#+END_SRC
+** Assignment MessageOperation
+#+BEGIN_SRC python
+MessageOperation = Union[
+    # Cell operations
+    CellOp,
+    FunctionCallResult,
+    SendUIElementMessage,
+    RemoveUIElements,
+    # Notebook operations
+    Reload,
+    Reconnected,
+    Interrupted,
+    CompletedRun,
+    KernelReady,
+    # Editor operations
+    CompletionResult,
+    # Alerts
+    Alert,
+    Banner,
+    MissingPackageAlert,
+    InstallingPackageAlert,
+    # Variables
+    Variables,
+    VariableValues,
+    # Query params
+    QueryParamsSet,
+    QueryParamsAppend,
+    QueryParamsDelete,
+    QueryParamsClear,
+    # Datasets
+    Datasets,
+    DataColumnPreview,
+    # Kiosk specific
+    FocusCell,
+    UpdateCellCodes,
+    UpdateCellIdsRequest,
+]
+
+#+END_SRC
+* streams
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.streams
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/streams.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import contextlib
+import io
+import os
+import sys
+import threading
+from collections import deque
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Iterator,
+    Optional,
+    Protocol,
+)
+
+from marimo import _loggers
+from marimo._ast.cell import CellId_t
+from marimo._messaging.cell_output import CellChannel
+from marimo._messaging.console_output_worker import ConsoleMsg, buffered_writer
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._messaging.types import (
+    KernelMessage,
+    Stderr,
+    Stdin,
+    Stdout,
+    Stream,
+)
+from marimo._server.types import QueueType
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    import queue
+
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Assignment OUTPUT_MAX_BYTES = int(os.getenv("MARIMO_OUTPUT_MAX_BYTES", 5_000_000))
+#+BEGIN_SRC python
+# Byte limits on outputs. Limits exist for two reasons:
+#
+# 1. We use a multiprocessing.Connection object to send outputs from
+#    the kernel to the server (the server then sends the output to
+#    the frontend via a websocket). The Connection object has a limit
+#    of ~32MiB that it can send before it chokes
+#    (https://docs.python.org/3/library/multiprocessing.html#multiprocessing.connection.Connection.send).
+#
+#    TODO(akshayka): Get around this by breaking up the message sent
+#    over the Connection or plumbing the websocket into the kernel.
+#
+# 2. The frontend chokes when we send outputs that are too big, i.e.
+#    it freezes and sometimes even crashes. That can lead to lost work.
+#    It appears this is the bottleneck right now, compared to 1.
+#
+# Usually users only output gigantic things accidentally, so refusing
+# to show large outputs should in most cases not bother the user too much.
+# In any case, it's better than breaking the frontend/kernel.
+#
+# Output not shown if larger than OUTPUT_MAX_BYTES=5MB
+OUTPUT_MAX_BYTES = int(os.getenv("MARIMO_OUTPUT_MAX_BYTES", 5_000_000))
+
+#+END_SRC
+** Assignment STD_STREAM_MAX_BYTES = int(os.getenv("MARIMO_STD_STREAM_MAX_BYTES", 1_000_000))
+#+BEGIN_SRC python
+# Standard stream truncated if larger than STD_STREAM_MAX_BYTES=1MB
+STD_STREAM_MAX_BYTES = int(os.getenv("MARIMO_STD_STREAM_MAX_BYTES", 1_000_000))
+
+#+END_SRC
+** Class PipeProtocol
+#+BEGIN_SRC python
+class PipeProtocol(Protocol):
+    def send(self, obj: Any) -> None:
+        pass
+
+#+END_SRC
+** Class QueuePipe
+#+BEGIN_SRC python
+class QueuePipe:
+    def __init__(self, queue: queue.Queue[KernelMessage]):
+        self._queue = queue
+
+    def send(self, obj: Any) -> None:
+        self._queue.put_nowait(obj)
+
+#+END_SRC
+** Class ThreadSafeStream
+#+BEGIN_SRC python
+class ThreadSafeStream(Stream):
+    """A thread-safe wrapper around a pipe."""
+
+    def __init__(
+        self,
+        pipe: PipeProtocol,
+        input_queue: QueueType[str],
+        cell_id: Optional[CellId_t] = None,
+    ):
+        self.pipe = pipe
+        self.cell_id = cell_id
+        # A single stream is shared by the kernel and the code completion
+        # worker. The lock should almost always be uncontended.
+        self.stream_lock = threading.Lock()
+
+        # Console outputs are buffered
+        self.console_msg_cv = threading.Condition(threading.Lock())
+        self.console_msg_queue: deque[ConsoleMsg] = deque()
+        self.buffered_console_thread = threading.Thread(
+            target=buffered_writer,
+            args=(self.console_msg_queue, self, self.console_msg_cv),
+        )
+        self.buffered_console_thread.start()
+
+        # stdin messages are pulled from this queue
+        self.input_queue = input_queue
+
+    def write(self, op: str, data: dict[Any, Any]) -> None:
+        with self.stream_lock:
+            try:
+                self.pipe.send((op, data))
+            except OSError as e:
+                # Most likely a BrokenPipeError, caused by the
+                # server process shutting down
+                LOGGER.debug("Error when writing (op: %s) to pipe: %s", op, e)
+
+#+END_SRC
+** Function _forward_os_stream
+#+BEGIN_SRC python
+def _forward_os_stream(standard_stream: Stdout | Stderr, fd: int) -> None:
+    """Watch a file descriptor and forward it to a stream object."""
+
+    # This coarse try/except block silences exceptions; a raised exception
+    # at this point could cause bad errors, such as an infinite stream of data
+    # to be written to the fd/routed through the stream.
+    #
+    # TODO(akshayka): Make this loop bomb-proof, so that exceptions raised are
+    # exceptions we actually want to pay attention to; then store the exception
+    # and print it to the terminal later (outside an execution context).
+    try:
+        while True:
+            data = os.read(fd, 1024)
+            if not data:
+                break
+            standard_stream.write(data.decode())
+    except Exception:
+        ...
+
+#+END_SRC
+** Class Watcher
+#+BEGIN_SRC python
+class Watcher:
+    """Watches and redirects a standard stream."""
+
+    def __init__(
+        self, standard_stream: ThreadSafeStdout | ThreadSafeStderr
+    ) -> None:
+        self.standard_stream = standard_stream
+        self.fd = self.standard_stream._original_fd
+        self.read_fd, self.write_fd = os.pipe()
+        self.thread = threading.Thread(
+            target=_forward_os_stream,
+            args=(self.standard_stream, self.read_fd),
+            daemon=True,
+        )
+        self.thread.start()
+
+    def start(self) -> None:
+        # Save the file for the standard stream by opening a new file
+        # descriptor for it
+        self.fd_dup = os.dup(self.fd)
+        self.standard_stream._set_fileno(self.fd_dup)
+        # Change the original file descriptor for the standard stream
+        # to refer to the write end of the pipe
+        os.dup2(self.write_fd, self.fd)
+
+    def pause(self) -> None:
+        # Restore the original file descriptor to point to the standard
+        # stream file
+        os.dup2(self.fd_dup, self.fd)
+        os.close(self.fd_dup)
+        self.standard_stream._set_fileno(None)
+
+    def stop(self) -> None:
+        os.close(self.write_fd)
+        os.close(self.read_fd)
+
+#+END_SRC
+** Class ThreadSafeStdout
+#+BEGIN_SRC python
+# NB: Python doesn't provide a standard out class to inherit from, so
+# we inherit from TextIOBase.
+class ThreadSafeStdout(Stdout):
+    encoding = sys.stdout.encoding
+    errors = sys.stdout.errors
+    _fileno: int | None = None
+
+    def __init__(self, stream: ThreadSafeStream):
+        self._stream = stream
+        self._original_fd = sys.stdout.fileno()
+        self._watcher = Watcher(self)
+
+    def fileno(self) -> int:
+        if self._fileno is not None:
+            return self._fileno
+        raise io.UnsupportedOperation("Stream not redirected, no fileno.")
+
+    def _set_fileno(self, fileno: int | None) -> None:
+        self._fileno = fileno
+
+    def writable(self) -> bool:
+        return True
+
+    def readable(self) -> bool:
+        return False
+
+    def seekable(self) -> bool:
+        return False
+
+    def flush(self) -> None:
+        # TODO(akshayka): maybe force the buffered writer to write
+        return
+
+    def _write_with_mimetype(self, data: str, mimetype: KnownMimeType) -> int:
+        assert self._stream.cell_id is not None
+        if not isinstance(data, str):
+            raise TypeError(
+                "write() argument must be a str, not %s" % type(data).__name__
+            )
+        if sys.getsizeof(data) > STD_STREAM_MAX_BYTES:
+            sys.stderr.write(
+                "Warning: marimo truncated a very large console output.\n"
+            )
+            data = data[: int(STD_STREAM_MAX_BYTES)] + " ... "
+        self._stream.console_msg_queue.append(
+            ConsoleMsg(
+                stream=CellChannel.STDOUT,
+                cell_id=self._stream.cell_id,
+                data=data,
+                mimetype=mimetype,
+            )
+        )
+        with self._stream.console_msg_cv:
+            self._stream.console_msg_cv.notify()
+        return len(data)
+
+    # Buffer type not available python < 3.12, hence type ignore
+    def writelines(self, sequence: Iterable[str]) -> None:  # type: ignore[override] # noqa: E501
+        for line in sequence:
+            self.write(line)
+
+#+END_SRC
+** Class ThreadSafeStderr
+#+BEGIN_SRC python
+class ThreadSafeStderr(Stderr):
+    encoding = sys.stderr.encoding
+    errors = sys.stderr.errors
+    _fileno: int | None = None
+
+    def __init__(self, stream: ThreadSafeStream):
+        self._stream = stream
+        self._original_fd = sys.stderr.fileno()
+        self._watcher = Watcher(self)
+
+    def fileno(self) -> int:
+        if self._fileno is not None:
+            return self._fileno
+        raise io.UnsupportedOperation("Stream not redirected, no fileno.")
+
+    def _set_fileno(self, fileno: int | None) -> None:
+        self._fileno = fileno
+
+    def writable(self) -> bool:
+        return True
+
+    def readable(self) -> bool:
+        return False
+
+    def seekable(self) -> bool:
+        return False
+
+    def flush(self) -> None:
+        # TODO(akshayka): maybe force the buffered writer to write
+        return
+
+    def _write_with_mimetype(self, data: str, mimetype: KnownMimeType) -> int:
+        assert self._stream.cell_id is not None
+        if not isinstance(data, str):
+            raise TypeError(
+                "write() argument must be a str, not %s" % type(data).__name__
+            )
+        if sys.getsizeof(data) > STD_STREAM_MAX_BYTES:
+            data = (
+                "Warning: marimo truncated a very large console output.\n"
+                + data[: int(STD_STREAM_MAX_BYTES)]
+                + " ... "
+            )
+
+        with self._stream.console_msg_cv:
+            self._stream.console_msg_queue.append(
+                ConsoleMsg(
+                    stream=CellChannel.STDERR,
+                    cell_id=self._stream.cell_id,
+                    data=data,
+                    mimetype=mimetype,
+                )
+            )
+            self._stream.console_msg_cv.notify()
+        return len(data)
+
+    def writelines(self, sequence: Iterable[str]) -> None:  # type: ignore[override] # noqa: E501
+        for line in sequence:
+            self.write(line)
+
+#+END_SRC
+** Class ThreadSafeStdin
+#+BEGIN_SRC python
+class ThreadSafeStdin(Stdin):
+    """Implements a subset of stdin."""
+
+    encoding = sys.stdin.encoding
+    errors = sys.stdin.errors
+
+    def __init__(self, stream: ThreadSafeStream):
+        self._stream = stream
+
+    def fileno(self) -> int:
+        raise io.UnsupportedOperation(
+            "marimo's stdin is a pseudofile, which has no fileno."
+        )
+
+    def writable(self) -> bool:
+        return False
+
+    def readable(self) -> bool:
+        return True
+
+    def _readline_with_prompt(self, prompt: str = "") -> str:
+        """Read input from the standard in stream, with an optional prompt."""
+        assert self._stream.cell_id is not None
+        if not isinstance(prompt, str):
+            raise TypeError(
+                "prompt must be a str, not %s" % type(prompt).__name__
+            )
+        if sys.getsizeof(prompt) > STD_STREAM_MAX_BYTES:
+            prompt = (
+                "Warning: marimo truncated a very large console output.\n"
+                + prompt[: int(STD_STREAM_MAX_BYTES)]
+                + " ... "
+            )
+
+        with self._stream.console_msg_cv:
+            # This sends a prompt request to the frontend.
+            self._stream.console_msg_queue.append(
+                ConsoleMsg(
+                    stream=CellChannel.STDIN,
+                    cell_id=self._stream.cell_id,
+                    data=prompt,
+                    mimetype="text/plain",
+                )
+            )
+            self._stream.console_msg_cv.notify()
+
+        return self._stream.input_queue.get()
+
+    def readline(self, size: int | None = -1) -> str:  # type: ignore[override]  # noqa: E501
+        # size only included for compatibility with sys.stdin.readline API;
+        # we don't support it.
+        del size
+        return self._readline_with_prompt(prompt="")
+
+    def readlines(self, hint: int | None = -1) -> list[str]:  # type: ignore[override]  # noqa: E501
+        # Just an alias for readline.
+        #
+        # hint only included for compatibility with sys.stdin.readlines API;
+        # we don't support it.
+        del hint
+        return self._readline_with_prompt(prompt="").split("\n")
+
+#+END_SRC
+** @contextlib.contextmanager: Function redirect
+#+BEGIN_SRC python
+@contextlib.contextmanager
+def redirect(standard_stream: Stdout | Stderr) -> Iterator[None]:
+    """Redirect a standard stream to the frontend."""
+    try:
+        if isinstance(standard_stream, ThreadSafeStdout) or isinstance(
+            standard_stream, ThreadSafeStderr
+        ):
+            standard_stream._watcher.start()
+        yield
+    finally:
+        if isinstance(standard_stream, ThreadSafeStdout) or isinstance(
+            standard_stream, ThreadSafeStderr
+        ):
+            standard_stream._watcher.pause()
+
+#+END_SRC
+* tracebacks
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.tracebacks
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/tracebacks.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import sys
+
+from marimo._messaging.types import Stderr
+
+#+END_SRC
+** Function _highlight_traceback
+#+BEGIN_SRC python
+def _highlight_traceback(traceback: str) -> str:
+    """
+    Highlight the traceback with color.
+    """
+
+    from pygments import highlight
+    from pygments.formatters import HtmlFormatter
+    from pygments.lexers import PythonTracebackLexer
+
+    formatter = HtmlFormatter()
+
+    body = highlight(traceback, PythonTracebackLexer(), formatter)
+    return f'<span class="codehilite">{body}</span>'
+
+#+END_SRC
+** Function write_traceback
+#+BEGIN_SRC python
+def write_traceback(traceback: str) -> None:
+    if isinstance(sys.stderr, Stderr):
+        sys.stderr._write_with_mimetype(
+            _highlight_traceback(traceback),
+            mimetype="application/vnd.marimo+traceback",
+        )
+    else:
+        sys.stderr.write(traceback)
+
+#+END_SRC
+** Function is_code_highlighting
+#+BEGIN_SRC python
+def is_code_highlighting(value: str) -> bool:
+    return 'class="codehilite"' in value
+
+#+END_SRC
+* types
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._messaging.types
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_messaging/types.py
+:END:
+** Assignment KernelMessage = Tuple[str, Any]
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import abc
+import io
+from typing import Any, Dict, Optional, Tuple
+
+from marimo._ast.cell import CellId_t
+from marimo._messaging.mimetypes import KnownMimeType
+
+# The message from the kernel is a tuple of message type
+# and a json representation of the message
+KernelMessage = Tuple[str, Any]
+
+#+END_SRC
+** Class Stream
+#+BEGIN_SRC python
+class Stream(abc.ABC):
+    """
+    A stream is a class that can write messages from the kernel to
+    some output.
+    The `write` method is called by the kernel.
+    """
+
+    cell_id: Optional[CellId_t] = None
+
+    @abc.abstractmethod
+    def write(self, op: str, data: Dict[Any, Any]) -> None:
+        pass
+
+#+END_SRC
+** Class NoopStream
+#+BEGIN_SRC python
+class NoopStream(Stream):
+    def write(self, op: str, data: Dict[Any, Any]) -> None:
+        pass
+
+#+END_SRC
+** Class Stdout
+#+BEGIN_SRC python
+class Stdout(io.TextIOBase):
+    name = "stdout"
+
+    @abc.abstractmethod
+    def _write_with_mimetype(self, data: str, mimetype: KnownMimeType) -> int:
+        pass
+
+    def write(self, __s: str) -> int:
+        return self._write_with_mimetype(__s, mimetype="text/plain")
+
+#+END_SRC
+** Class Stderr
+#+BEGIN_SRC python
+class Stderr(io.TextIOBase):
+    name = "stderr"
+
+    @abc.abstractmethod
+    def _write_with_mimetype(self, data: str, mimetype: KnownMimeType) -> int:
+        pass
+
+    def write(self, __s: str) -> int:
+        return self._write_with_mimetype(__s, mimetype="text/plain")
+
+#+END_SRC
+** Class Stdin
+#+BEGIN_SRC python
+class Stdin(io.TextIOBase):
+    name = "stdin"
+
+    pass
+
+#+END_SRC

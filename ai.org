@@ -1,0 +1,764 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._ai
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo/
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* AI utilities.
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ai.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ai/__init__.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""AI utilities."""
+
+#+END_SRC
+** Assignment __all__
+#+BEGIN_SRC python
+from __future__ import annotations
+
+__all__ = [
+    "ChatMessage",
+    "ChatModelConfig",
+    "ChatAttachment",
+    "llm",
+]
+
+#+END_SRC
+** Import
+#+BEGIN_SRC python
+from marimo._ai import llm
+from marimo._ai.types import (
+    ChatAttachment,
+    ChatMessage,
+    ChatModelConfig,
+)
+
+#+END_SRC
+* convert
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ai.convert
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ai/convert.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import base64
+from typing import Any, Dict, List, TypedDict
+
+from marimo._ai.types import ChatMessage
+
+#+END_SRC
+** Function convert_to_openai_messages
+#+BEGIN_SRC python
+def convert_to_openai_messages(
+    messages: List[ChatMessage],
+) -> List[Dict[Any, Any]]:
+    openai_messages: List[Dict[Any, Any]] = []
+
+    for message in messages:
+        if not message.attachments:
+            openai_messages.append(
+                {"role": message.role, "content": message.content}
+            )
+            continue
+
+        # Handle attachments
+        parts: List[Dict[Any, Any]] = []
+        parts.append({"type": "text", "text": message.content})
+        for attachment in message.attachments:
+            content_type = attachment.content_type or "text/plain"
+
+            if content_type.startswith("image"):
+                parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": attachment.url},
+                    }
+                )
+            elif content_type.startswith("text"):
+                parts.append(
+                    {"type": "text", "text": _extract_text(attachment.url)}
+                )
+            else:
+                raise ValueError(f"Unsupported content type {content_type}")
+
+        openai_messages.append({"role": message.role, "content": parts})
+
+    return openai_messages
+
+#+END_SRC
+** Function convert_to_anthropic_messages
+#+BEGIN_SRC python
+def convert_to_anthropic_messages(
+    messages: List[ChatMessage],
+) -> List[Dict[Any, Any]]:
+    anthropic_messages: List[Dict[Any, Any]] = []
+
+    for message in messages:
+        if not message.attachments:
+            anthropic_messages.append(
+                {"role": message.role, "content": message.content}
+            )
+            continue
+
+        # Handle attachments
+        parts: List[Dict[Any, Any]] = []
+        parts.append({"type": "text", "text": message.content})
+        for attachment in message.attachments:
+            content_type = attachment.content_type or "text/plain"
+            if content_type.startswith("image"):
+                parts.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": content_type,
+                            "data": _extract_data(attachment.url),
+                        },
+                    }
+                )
+
+            elif content_type.startswith("text"):
+                parts.append(
+                    {"type": "text", "text": _extract_text(attachment.url)}
+                )
+
+            else:
+                raise ValueError(f"Unsupported content type {content_type}")
+
+        anthropic_messages.append({"role": message.role, "content": parts})
+
+    return anthropic_messages
+
+#+END_SRC
+** Function convert_to_groq_messages
+#+BEGIN_SRC python
+def convert_to_groq_messages(
+    messages: List[ChatMessage],
+) -> List[Dict[Any, Any]]:
+    groq_messages: List[Dict[Any, Any]] = []
+
+    for message in messages:
+        # Currently only supports text content (Llava is deprecated now)
+        # See here - https://console.groq.com/docs/deprecations
+        if message.attachments:
+            # Convert attachments to text if possible
+            text_content = str(message.content)  # Explicitly convert to string
+            for attachment in message.attachments:
+                content_type = attachment.content_type or "text/plain"
+                if content_type.startswith("text"):
+                    text_content += "\n" + _extract_text(attachment.url)
+
+            groq_messages.append(
+                {"role": message.role, "content": text_content}
+            )
+        else:
+            groq_messages.append(
+                {
+                    "role": message.role,
+                    "content": str(
+                        message.content
+                    ),  # Explicitly convert to string
+                }
+            )
+
+    return groq_messages
+
+#+END_SRC
+** Class BlobDict
+#+BEGIN_SRC python
+# Matches from google.generativeai.types import content_types
+class BlobDict(TypedDict):
+    mime_type: str
+    data: bytes
+
+#+END_SRC
+** Function convert_to_google_messages
+#+BEGIN_SRC python
+def convert_to_google_messages(
+    messages: List[ChatMessage],
+) -> List[Dict[Any, Any]]:
+    google_messages: List[Dict[Any, Any]] = []
+
+    for message in messages:
+        parts: List[str | BlobDict] = [str(message.content)]
+        if message.attachments:
+            for attachment in message.attachments:
+                content_type = attachment.content_type or "text/plain"
+
+                parts.append(
+                    {
+                        "mime_type": content_type,
+                        "data": base64.b64decode(
+                            _extract_data(attachment.url)
+                        ),
+                    }
+                )
+
+        google_messages.append(
+            {
+                "role": "user" if message.role == "user" else "model",
+                "parts": parts,
+            }
+        )
+
+    return google_messages
+
+#+END_SRC
+** Function _extract_text
+#+BEGIN_SRC python
+def _extract_text(url: str) -> str:
+    if url.startswith("data:"):
+        # extract base64 encoding from url
+        data = url.split(",")[1]
+        return base64.b64decode(data).decode("utf-8")
+    else:
+        return url
+
+#+END_SRC
+** Function _extract_data
+#+BEGIN_SRC python
+def _extract_data(url: str) -> str:
+    if url.startswith("data:"):
+        return url.split(",")[1]
+    else:
+        return url
+
+#+END_SRC
+* llm
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ai.llm
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ai/llm.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import os
+from typing import Callable, List, Optional, cast
+
+from marimo._ai.convert import (
+    convert_to_anthropic_messages,
+    convert_to_google_messages,
+    convert_to_groq_messages,
+    convert_to_openai_messages,
+)
+from marimo._ai.types import (
+    ChatMessage,
+    ChatModel,
+    ChatModelConfig,
+)
+from marimo._dependencies.dependencies import DependencyManager
+
+#+END_SRC
+** Assignment DEFAULT_SYSTEM_MESSAGE
+#+BEGIN_SRC python
+DEFAULT_SYSTEM_MESSAGE = (
+    "You are a helpful assistant specializing in data science."
+)
+
+#+END_SRC
+** Class simple
+#+BEGIN_SRC python
+class simple(ChatModel):
+    """
+    Convenience class for wrapping a ChatModel or callable to
+    take a single prompt
+
+    **Args:**
+
+    - delegate: A callable that takes a
+        single prompt and returns a response
+    """
+
+    def __init__(self, delegate: Callable[[str], object]):
+        self.delegate = delegate
+
+    def __call__(
+        self, messages: List[ChatMessage], config: ChatModelConfig
+    ) -> object:
+        del config
+        prompt = str(messages[-1].content)
+        return self.delegate(prompt)
+
+#+END_SRC
+** Class openai
+#+BEGIN_SRC python
+class openai(ChatModel):
+    """
+    OpenAI ChatModel
+
+    **Args:**
+
+    - model: The model to use.
+        Can be found on the [OpenAI models page](https://platform.openai.com/docs/models)
+    - system_message: The system message to use
+    - api_key: The API key to use.
+        If not provided, the API key will be retrieved
+        from the OPENAI_API_KEY environment variable or the user's config.
+    - base_url: The base URL to use
+    """
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        system_message: str = DEFAULT_SYSTEM_MESSAGE,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ):
+        self.model = model
+        self.system_message = system_message
+        self.api_key = api_key
+        self.base_url = base_url
+
+    @property
+    def _require_api_key(self) -> str:
+        # If the api key is provided, use it
+        if self.api_key is not None:
+            return self.api_key
+
+        # Then check the environment variable
+        env_key = os.environ.get("OPENAI_API_KEY")
+        if env_key is not None:
+            return env_key
+
+        # Then check the user's config
+        try:
+            from marimo._runtime.context.types import get_context
+
+            api_key = get_context().user_config["ai"]["open_ai"]["api_key"]
+            if api_key:
+                return api_key
+        except Exception:
+            pass
+
+        raise ValueError(
+            "openai api key not provided. Pass it as an argument or "
+            "set OPENAI_API_KEY as an environment variable"
+        )
+
+    def __call__(
+        self, messages: List[ChatMessage], config: ChatModelConfig
+    ) -> object:
+        DependencyManager.openai.require(
+            "chat model requires openai. `pip install openai`"
+        )
+        from openai import OpenAI  # type: ignore[import-not-found]
+        from openai.types.chat import (  # type: ignore[import-not-found]
+            ChatCompletionMessageParam,
+        )
+
+        client = OpenAI(
+            api_key=self._require_api_key,
+            base_url=self.base_url,
+        )
+
+        openai_messages = convert_to_openai_messages(
+            [ChatMessage(role="system", content=self.system_message)]
+            + messages
+        )
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=cast(List[ChatCompletionMessageParam], openai_messages),
+            max_tokens=config.max_tokens,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            frequency_penalty=config.frequency_penalty,
+            presence_penalty=config.presence_penalty,
+            stream=False,
+        )
+
+        choice = response.choices[0]
+        content = choice.message.content
+        return content or ""
+
+#+END_SRC
+** Class anthropic
+#+BEGIN_SRC python
+class anthropic(ChatModel):
+    """
+    Anthropic ChatModel
+
+    **Args:**
+
+    - model: The model to use.
+        Can be found on the [Anthropic models page](https://docs.anthropic.com/en/docs/about-claude/models)
+    - system_message: The system message to use
+    - api_key: The API key to use.
+        If not provided, the API key will be retrieved
+        from the ANTHROPIC_API_KEY environment variable
+        or the user's config.
+    - base_url: The base URL to use
+    """
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        system_message: str = DEFAULT_SYSTEM_MESSAGE,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ):
+        self.model = model
+        self.system_message = system_message
+        self.api_key = api_key
+        self.base_url = base_url
+        self.system_message = system_message
+
+    @property
+    def _require_api_key(self) -> str:
+        # If the api key is provided, use it
+        if self.api_key is not None:
+            return self.api_key
+
+        # Then check the user's config
+        try:
+            from marimo._runtime.context.types import get_context
+
+            api_key = get_context().user_config["ai"]["anthropic"]["api_key"]
+            if api_key:
+                return api_key
+        except Exception:
+            pass
+
+        # Then check the environment variable
+        env_key = os.environ.get("ANTHROPIC_API_KEY")
+        if env_key is not None:
+            return env_key
+
+        raise ValueError(
+            "anthropic api key not provided. Pass it as an argument or "
+            "set ANTHROPIC_API_KEY as an environment variable"
+        )
+
+    def __call__(
+        self, messages: List[ChatMessage], config: ChatModelConfig
+    ) -> object:
+        DependencyManager.anthropic.require(
+            "chat model requires anthropic. `pip install anthropic`"
+        )
+        from anthropic import (  # type: ignore[import-not-found]
+            NOT_GIVEN,
+            Anthropic,
+        )
+        from anthropic.types.message_param import (  # type: ignore[import-not-found]
+            MessageParam,
+        )
+
+        client = Anthropic(
+            api_key=self._require_api_key,
+            base_url=self.base_url,
+        )
+
+        anthropic_messages = convert_to_anthropic_messages(messages)
+        response = client.messages.create(
+            model=self.model,
+            system=self.system_message,
+            max_tokens=config.max_tokens or 1000,
+            messages=cast(List[MessageParam], anthropic_messages),
+            top_p=config.top_p if config.top_p is not None else NOT_GIVEN,
+            top_k=config.top_k if config.top_k is not None else NOT_GIVEN,
+            stream=False,
+            temperature=config.temperature
+            if config.temperature is not None
+            else NOT_GIVEN,
+        )
+
+        content = response.content
+        if len(content) > 0:
+            if content[0].type == "text":
+                return content[0].text
+            elif content[0].type == "tool_use":
+                return content
+        return ""
+
+#+END_SRC
+** Class google
+#+BEGIN_SRC python
+class google(ChatModel):
+    """
+    Google AI ChatModel
+
+    **Args:**
+
+    - model: The model to use.
+        Can be found on the [Gemini models page](https://ai.google.dev/gemini-api/docs/models/gemini)
+    - system_message: The system message to use
+    - api_key: The API key to use.
+        If not provided, the API key will be retrieved
+        from the GOOGLE_AI_API_KEY environment variable
+        or the user's config.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        system_message: str = DEFAULT_SYSTEM_MESSAGE,
+        api_key: Optional[str] = None,
+    ):
+        self.model = model
+        self.system_message = system_message
+        self.api_key = api_key
+
+    @property
+    def _require_api_key(self) -> str:
+        # If the api key is provided, use it
+        if self.api_key is not None:
+            return self.api_key
+
+        # Then check the user's config
+        try:
+            from marimo._runtime.context.types import get_context
+
+            api_key = get_context().user_config["ai"]["google"]["api_key"]
+            if api_key:
+                return api_key
+        except Exception:
+            pass
+
+        # Then check the environment variable
+        env_key = os.environ.get("GOOGLE_AI_API_KEY")
+        if env_key is not None:
+            return env_key
+
+        raise ValueError(
+            "Google AI api key not provided. Pass it as an argument or "
+            "set GOOGLE_AI_API_KEY as an environment variable"
+        )
+
+    def __call__(
+        self, messages: List[ChatMessage], config: ChatModelConfig
+    ) -> object:
+        DependencyManager.google_ai.require(
+            "chat model requires google. `pip install google-generativeai`"
+        )
+        import google.generativeai as genai  # type: ignore[import-not-found]
+
+        genai.configure(api_key=self._require_api_key)
+        client = genai.GenerativeModel(
+            model_name=self.model,
+            generation_config=genai.GenerationConfig(
+                max_output_tokens=config.max_tokens,
+                temperature=config.temperature,
+                top_p=config.top_p,
+                top_k=config.top_k,
+                frequency_penalty=config.frequency_penalty,
+                presence_penalty=config.presence_penalty,
+            ),
+        )
+
+        google_messages = convert_to_google_messages(messages)
+        response = client.generate_content(google_messages)
+
+        content = response.text
+        return content or ""
+
+#+END_SRC
+** Class groq
+#+BEGIN_SRC python
+class groq(ChatModel):
+    """
+    Groq ChatModel
+
+    **Args:**
+
+    - model: The model to use.
+        Can be found on the [Groq models page](https://console.groq.com/docs/models)
+    - system_message: The system message to use
+    - api_key: The API key to use.
+        If not provided, the API key will be retrieved
+        from the GROQ_API_KEY environment variable or the user's config.
+    - base_url: The base URL to use
+    """
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        system_message: str = DEFAULT_SYSTEM_MESSAGE,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ):
+        self.model = model
+        self.system_message = system_message
+        self.api_key = api_key
+        self.base_url = base_url
+
+    @property
+    def _require_api_key(self) -> str:
+        # If the api key is provided, use it
+        if self.api_key is not None:
+            return self.api_key
+
+        # Then check the environment variable
+        env_key = os.environ.get("GROQ_API_KEY")
+        if env_key is not None:
+            return env_key
+
+        # TODO(haleshot): Add config support later
+        # # Then check the user's config
+        # try:
+        #     from marimo._runtime.context.types import get_context
+        #
+        #     api_key = get_context().user_config["ai"]["groq"]["api_key"]
+        #     if api_key:
+        #         return api_key
+        # except Exception:
+        #     pass
+
+        raise ValueError(
+            "groq api key not provided. Pass it as an argument or "
+            "set GROQ_API_KEY as an environment variable"
+        )
+
+    def __call__(
+        self, messages: List[ChatMessage], config: ChatModelConfig
+    ) -> object:
+        DependencyManager.groq.require(
+            "chat model requires groq. `pip install groq`"
+        )
+        from groq import Groq  # type: ignore[import-not-found]
+
+        client = Groq(api_key=self._require_api_key, base_url=self.base_url)
+
+        groq_messages = convert_to_groq_messages(
+            [ChatMessage(role="system", content=self.system_message)]
+            + messages
+        )
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=groq_messages,
+            max_tokens=config.max_tokens,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            stop=None,
+            stream=False,
+        )
+
+        choice = response.choices[0]
+        content = choice.message.content
+        return content or ""
+
+#+END_SRC
+* types
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ai.types
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ai/types.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import abc
+import mimetypes
+from dataclasses import dataclass
+from typing import List, Literal, Optional, TypedDict
+
+#+END_SRC
+** Class ChatAttachmentDict
+#+BEGIN_SRC python
+class ChatAttachmentDict(TypedDict):
+    url: str
+    content_type: Optional[str]
+    name: Optional[str]
+
+#+END_SRC
+** Class ChatMessageDict
+#+BEGIN_SRC python
+class ChatMessageDict(TypedDict):
+    role: Literal["user", "assistant", "system"]
+    content: str
+    attachments: Optional[List[ChatAttachmentDict]]
+
+#+END_SRC
+** Class ChatModelConfigDict
+#+BEGIN_SRC python
+class ChatModelConfigDict(TypedDict, total=False):
+    max_tokens: Optional[int]
+    temperature: Optional[float]
+    top_p: Optional[float]
+    top_k: Optional[int]
+    frequency_penalty: Optional[float]
+    presence_penalty: Optional[float]
+
+#+END_SRC
+** @dataclass: Class ChatAttachment
+#+BEGIN_SRC python
+# NOTE: The following classes are public API.
+# Any changes must be backwards compatible.
+
+
+@dataclass
+class ChatAttachment:
+    # The URL of the attachment. It can either be a URL to a hosted file or a
+    # [Data URL](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URLs).
+    url: str
+
+    # The name of the attachment, usually the file name.
+    name: str = "attachment"
+
+    # A string indicating the [media type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Type).
+    # By default, it's extracted from the pathname's extension.
+    content_type: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.content_type is None:
+            self.content_type = mimetypes.guess_type(self.url)[0]
+
+#+END_SRC
+** @dataclass: Class ChatMessage
+#+BEGIN_SRC python
+@dataclass
+class ChatMessage:
+    """
+    A message in a chat.
+    """
+
+    # The role of the message.
+    role: Literal["user", "assistant", "system"]
+
+    # The content of the message.
+    content: object
+
+    # Optional attachments to the message.
+    attachments: Optional[List[ChatAttachment]] = None
+
+#+END_SRC
+** @dataclass: Class ChatModelConfig
+#+BEGIN_SRC python
+@dataclass
+class ChatModelConfig:
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+
+#+END_SRC
+** Class ChatModel
+#+BEGIN_SRC python
+class ChatModel(abc.ABC):
+    @abc.abstractmethod
+    def __call__(
+        self, messages: List[ChatMessage], config: ChatModelConfig
+    ) -> object:
+        pass
+
+#+END_SRC

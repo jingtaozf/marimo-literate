@@ -1,0 +1,831 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._config
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._config.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_config/__init__.py
+:END:
+** Comment
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+#+END_SRC
+* config
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._config.config
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_config/config.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from typing import TypeVar
+
+from marimo._config.packages import infer_package_manager
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+if sys.version_info < (3, 11):
+    from typing_extensions import NotRequired
+else:
+    from typing import NotRequired
+
+from typing import Any, Dict, Literal, Optional, TypedDict, Union, cast
+
+from marimo._output.rich_help import mddoc
+from marimo._utils.deep_merge import deep_merge
+
+#+END_SRC
+** @mddoc dataclass: Class CompletionConfig
+#+BEGIN_SRC python
+@mddoc
+@dataclass
+class CompletionConfig(TypedDict):
+    """Configuration for code completion.
+
+    A dict with key/value pairs configuring code completion in the marimo
+    editor.
+
+    **Keys.**
+
+    - `activate_on_typing`: if `False`, completion won't activate
+    until the completion hotkey is entered
+    - `copilot`: if `True`, enable the GitHub Copilot language server
+    """
+
+    activate_on_typing: bool
+    copilot: Union[bool, Literal["github", "codeium"]]
+    codeium_api_key: NotRequired[Optional[str]]
+
+#+END_SRC
+** @mddoc dataclass: Class SaveConfig
+#+BEGIN_SRC python
+@mddoc
+@dataclass
+class SaveConfig(TypedDict):
+    """Configuration for saving.
+
+    **Keys.**
+
+    - `autosave`: one of `"off"` or `"after_delay"`
+    - `delay`: number of milliseconds to wait before autosaving
+    - `format_on_save`: if `True`, format the code on save
+    """
+
+    autosave: Literal["off", "after_delay"]
+    autosave_delay: int
+    format_on_save: bool
+
+#+END_SRC
+** @mddoc dataclass: Class KeymapConfig
+#+BEGIN_SRC python
+@mddoc
+@dataclass
+class KeymapConfig(TypedDict):
+    """Configuration for keymaps.
+
+    **Keys.**
+
+    - `preset`: one of `"default"` or `"vim"`
+    - `overrides`: a dict of keymap actions to their keymap override
+    """
+
+    preset: Literal["default", "vim"]
+    overrides: NotRequired[Dict[str, str]]
+
+#+END_SRC
+** Assignment OnCellChangeType = Literal["lazy", "autorun"]
+#+BEGIN_SRC python
+OnCellChangeType = Literal["lazy", "autorun"]
+
+#+END_SRC
+** Assignment ExecutionType = Literal["relaxed", "strict"]
+#+BEGIN_SRC python
+ExecutionType = Literal["relaxed", "strict"]
+
+#+END_SRC
+** @mddoc dataclass: Class RuntimeConfig
+#+BEGIN_SRC python
+@mddoc
+@dataclass
+class RuntimeConfig(TypedDict):
+    """Configuration for runtime.
+
+    **Keys.**
+
+    - `auto_instantiate`: if `False`, cells won't automatically
+        run on startup. This only applies when editing a notebook,
+        and not when running as an application.
+        The default is `True`.
+    - `auto_reload`: if `lazy`, cells importing modified modules will marked
+      as stale; if `autorun`, affected cells will be automatically run. similar
+      to IPython's %autoreload extension but with more code intelligence.
+    - `on_cell_change`: if `lazy`, cells will be marked stale when their
+      ancestors run but won't autorun; if `autorun`, cells will automatically
+      run when their ancestors run.
+    - `execution_type`: if `relaxed`, marimo will not clone cell declarations;
+      if `strict` marimo will clone cell declarations by default, avoiding
+      hidden potential state build up.
+    """
+
+    auto_instantiate: bool
+    auto_reload: Literal["off", "lazy", "autorun"]
+    on_cell_change: OnCellChangeType
+
+#+END_SRC
+** Assignment WidthType = Literal["normal", "compact", "medium", "full"]
+#+BEGIN_SRC python
+# TODO(akshayka): remove normal, migrate to compact
+# normal == compact
+WidthType = Literal["normal", "compact", "medium", "full"]
+
+#+END_SRC
+** Assignment Theme = Literal["light", "dark", "system"]
+#+BEGIN_SRC python
+Theme = Literal["light", "dark", "system"]
+
+#+END_SRC
+** @mddoc dataclass: Class DisplayConfig
+#+BEGIN_SRC python
+@mddoc
+@dataclass
+class DisplayConfig(TypedDict):
+    """Configuration for display.
+
+    **Keys.**
+
+    - `theme`: `"light"`, `"dark"`, or `"system"`
+    - `code_editor_font_size`: font size for the code editor
+    - `cell_output`: `"above"` or `"below"`
+    - `dataframes`: `"rich"` or `"plain"`
+    """
+
+    theme: Theme
+    code_editor_font_size: int
+    cell_output: Literal["above", "below"]
+    default_width: WidthType
+    dataframes: Literal["rich", "plain"]
+
+#+END_SRC
+** @mddoc dataclass: Class FormattingConfig
+#+BEGIN_SRC python
+@mddoc
+@dataclass
+class FormattingConfig(TypedDict):
+    """Configuration for code formatting.
+
+    **Keys.**
+
+    - `line_length`: max line length
+    """
+
+    line_length: int
+
+#+END_SRC
+** @dataclass: Class ServerConfig
+#+BEGIN_SRC python
+@dataclass
+class ServerConfig(TypedDict):
+    """Configuration for the server.
+
+    **Keys.**
+
+    - `browser`: the web browser to use. `"default"` or a browser registered
+        with Python's webbrowser module (eg, `"firefox"` or `"chrome"`)
+    - `follow_symlink`: if true, the server will follow symlinks it finds
+        inside its static assets directory.
+    """
+
+    browser: Union[Literal["default"], str]
+    follow_symlink: bool
+
+#+END_SRC
+** @dataclass: Class PackageManagementConfig
+#+BEGIN_SRC python
+@dataclass
+class PackageManagementConfig(TypedDict):
+    """Configuration options for package management.
+
+    **Keys.**
+
+    - `manager`: the package manager to use
+    """
+
+    manager: Literal["pip", "rye", "uv", "poetry", "pixi"]
+
+#+END_SRC
+** @dataclass: Class AiConfig
+#+BEGIN_SRC python
+@dataclass
+class AiConfig(TypedDict, total=False):
+    """Configuration options for AI.
+
+    **Keys.**
+
+    - `rules`: custom rules to include in all AI completion prompts
+    - `open_ai`: the OpenAI config
+    - `anthropic`: the Anthropic config
+    - `google`: the Google AI config
+    """
+
+    rules: NotRequired[str]
+    open_ai: OpenAiConfig
+    anthropic: AnthropicConfig
+    google: GoogleAiConfig
+
+#+END_SRC
+** @dataclass: Class OpenAiConfig
+#+BEGIN_SRC python
+@dataclass
+class OpenAiConfig(TypedDict, total=False):
+    """Configuration options for OpenAI or OpenAI-compatible services.
+
+    **Keys.**
+
+    - `api_key`: the OpenAI API key
+    - `model`: the model to use.
+        if model starts with `claude-` we use the AnthropicConfig
+    - `base_url`: the base URL for the API
+    """
+
+    api_key: str
+    model: NotRequired[str]
+    base_url: NotRequired[str]
+
+#+END_SRC
+** @dataclass: Class AnthropicConfig
+#+BEGIN_SRC python
+@dataclass
+class AnthropicConfig(TypedDict, total=False):
+    """Configuration options for Anthropic.
+
+    **Keys.**
+
+    - `api_key`: the Anthropic
+    """
+
+    api_key: str
+
+#+END_SRC
+** @dataclass: Class GoogleAiConfig
+#+BEGIN_SRC python
+@dataclass
+class GoogleAiConfig(TypedDict, total=False):
+    """Configuration options for Google AI.
+
+    **Keys.**
+
+    - `api_key`: the Google AI API key
+    """
+
+    api_key: str
+
+#+END_SRC
+** @mddoc dataclass: Class MarimoConfig
+#+BEGIN_SRC python
+@mddoc
+@dataclass
+class MarimoConfig(TypedDict):
+    """Configuration for the marimo editor"""
+
+    completion: CompletionConfig
+    display: DisplayConfig
+    formatting: FormattingConfig
+    keymap: KeymapConfig
+    runtime: RuntimeConfig
+    save: SaveConfig
+    server: ServerConfig
+    package_management: PackageManagementConfig
+    ai: NotRequired[AiConfig]
+    experimental: NotRequired[Dict[str, Any]]
+
+#+END_SRC
+** @mddoc dataclass: Class PartialMarimoConfig
+#+BEGIN_SRC python
+@mddoc
+@dataclass
+class PartialMarimoConfig(TypedDict, total=False):
+    """Partial configuration for the marimo editor"""
+
+    completion: CompletionConfig
+    display: DisplayConfig
+    formatting: FormattingConfig
+    keymap: KeymapConfig
+    runtime: RuntimeConfig
+    save: SaveConfig
+    server: ServerConfig
+    package_management: PackageManagementConfig
+    ai: NotRequired[AiConfig]
+    experimental: NotRequired[Dict[str, Any]]
+
+#+END_SRC
+** Assignment DEFAULT_CONFIG
+#+BEGIN_SRC python
+DEFAULT_CONFIG: MarimoConfig = {
+    "completion": {"activate_on_typing": True, "copilot": False},
+    "display": {
+        "theme": "light",
+        "code_editor_font_size": 14,
+        "cell_output": "above",
+        "default_width": "medium",
+        "dataframes": "rich",
+    },
+    "formatting": {"line_length": 79},
+    "keymap": {"preset": "default", "overrides": {}},
+    "runtime": {
+        "auto_instantiate": True,
+        "auto_reload": "off",
+        "on_cell_change": "autorun",
+    },
+    "save": {
+        "autosave": "after_delay",
+        "autosave_delay": 1000,
+        "format_on_save": False,
+    },
+    "package_management": {"manager": infer_package_manager()},
+    "server": {
+        "browser": "default",
+        "follow_symlink": False,
+    },
+}
+
+#+END_SRC
+** Function merge_default_config
+#+BEGIN_SRC python
+def merge_default_config(
+    config: PartialMarimoConfig | MarimoConfig,
+) -> MarimoConfig:
+    """Merge a user configuration with the default configuration."""
+    return merge_config(DEFAULT_CONFIG, config)
+
+#+END_SRC
+** Function merge_config
+#+BEGIN_SRC python
+def merge_config(
+    config: MarimoConfig, new_config: PartialMarimoConfig | MarimoConfig
+) -> MarimoConfig:
+    """Merge a user configuration with a new configuration."""
+    # Remove the keymap overrides from the incoming config,
+    # so that they don't get merged into the new config
+    if new_config.get("keymap", {}).get("overrides") is not None:
+        # Clone config to avoid modifying the original
+        config = _deep_copy(config)
+        config.get("keymap", {}).pop("overrides", {})
+
+    merged = cast(
+        MarimoConfig,
+        deep_merge(
+            cast(Dict[Any, Any], config), cast(Dict[Any, Any], new_config)
+        ),
+    )
+
+    # Patches for backward compatibility
+    if (
+        merged["runtime"]["auto_reload"] is False  # type:ignore[comparison-overlap]
+    ):
+        merged["runtime"]["auto_reload"] = "off"
+    if (
+        merged["runtime"]["auto_reload"] is True  # type:ignore[comparison-overlap]
+    ):
+        merged["runtime"]["auto_reload"] = "lazy"
+    if (
+        merged["runtime"]["auto_reload"] == "detect"  # type:ignore[comparison-overlap]
+    ):
+        merged["runtime"]["auto_reload"] = "lazy"
+
+    return merged
+
+#+END_SRC
+** Function _deep_copy
+#+BEGIN_SRC python
+def _deep_copy(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _deep_copy(v) for k, v in obj.items()}  # type: ignore
+    if isinstance(obj, list):
+        return [_deep_copy(v) for v in obj]  # type: ignore
+    return obj
+
+#+END_SRC
+** Assignment SECRET_PLACEHOLDER = "********"
+#+BEGIN_SRC python
+SECRET_PLACEHOLDER = "********"
+
+#+END_SRC
+** Function mask_secrets
+#+BEGIN_SRC python
+def mask_secrets(config: MarimoConfig | PartialMarimoConfig) -> MarimoConfig:
+    def deep_remove_from_path(path: list[str], obj: Dict[str, Any]) -> None:
+        key = path[0]
+        if key not in obj:
+            return
+        if len(path) == 1:
+            if obj[key]:
+                obj[key] = SECRET_PLACEHOLDER
+        else:
+            deep_remove_from_path(path[1:], cast(Dict[str, Any], obj[key]))
+
+    secrets = [
+        ["ai", "open_ai", "api_key"],
+        ["ai", "anthropic", "api_key"],
+        ["ai", "google", "api_key"],
+    ]
+
+    new_config = _deep_copy(config)
+    for secret in secrets:
+        deep_remove_from_path(secret, cast(Dict[str, Any], new_config))
+
+    return new_config  # type: ignore
+
+#+END_SRC
+** Assignment T = TypeVar("T")
+#+BEGIN_SRC python
+T = TypeVar("T")
+
+#+END_SRC
+** Function remove_secret_placeholders
+#+BEGIN_SRC python
+def remove_secret_placeholders(config: T) -> T:
+    def deep_remove(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            # Filter all keys with value SECRET_PLACEHOLDER
+            return {
+                k: deep_remove(v)
+                for k, v in obj.items()
+                if v != SECRET_PLACEHOLDER
+            }  # type: ignore
+        if isinstance(obj, list):
+            return [deep_remove(v) for v in obj]  # type: ignore
+        if obj == SECRET_PLACEHOLDER:
+            return None
+        return obj
+
+    return deep_remove(_deep_copy(config))  # type: ignore
+
+#+END_SRC
+* manager
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._config.manager
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_config/manager.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import os
+from typing import Optional
+
+from marimo import _loggers
+from marimo._config.config import (
+    DEFAULT_CONFIG,
+    MarimoConfig,
+    PartialMarimoConfig,
+    mask_secrets,
+    merge_config,
+    merge_default_config,
+    remove_secret_placeholders,
+)
+from marimo._config.utils import (
+    get_or_create_config_path,
+    load_config,
+)
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Class UserConfigManager
+#+BEGIN_SRC python
+class UserConfigManager:
+    def __init__(self, config_path: Optional[str] = None) -> None:
+        self._config_path = config_path
+        self.config = load_config()
+
+    def save_config(
+        self, config: MarimoConfig | PartialMarimoConfig
+    ) -> MarimoConfig:
+        import tomlkit
+
+        config_path = self.get_config_path()
+        LOGGER.debug("Saving user configuration to %s", config_path)
+        # Remove the secret placeholders from the incoming config
+        config = remove_secret_placeholders(config)
+        # Merge the current config with the new config
+        merged = merge_config(self.config, config)
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            tomlkit.dump(merged, f)
+
+        self.config = merge_default_config(merged)
+        return self.config
+
+    def save_config_if_missing(self) -> None:
+        try:
+            config_path = self.get_config_path()
+            if not os.path.exists(config_path):
+                self.save_config(DEFAULT_CONFIG)
+        except Exception as e:
+            LOGGER.warning("Failed to save config: %s", e)
+
+    def get_config(self, hide_secrets: bool = True) -> MarimoConfig:
+        if hide_secrets:
+            return mask_secrets(self.config)
+        return self.config
+
+    def get_config_path(self) -> str:
+        return get_or_create_config_path()
+
+#+END_SRC
+* packages
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._config.packages
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_config/packages.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+from typing import Literal
+
+#+END_SRC
+** Function infer_package_manager
+#+BEGIN_SRC python
+def infer_package_manager() -> Literal["pip", "rye", "uv", "poetry", "pixi"]:
+    """Infer the package manager from the current project."""
+
+    try:
+        # Get the project root by looking for common project files
+        current_dir = Path.cwd()
+        root_dir = current_dir
+
+        while root_dir != root_dir.parent:
+            if any(root_dir.glob("pyproject.toml")) or any(
+                root_dir.glob("requirements.txt")
+            ):
+                break
+            root_dir = root_dir.parent
+
+        # Check for Poetry
+        if (root_dir / "poetry.lock").exists():
+            return "poetry"
+
+        # Check for Rye
+        if (root_dir / ".rye").exists():
+            return "rye"
+
+        # Check for Pixi
+        if (root_dir / "pixi.toml").exists():
+            return "pixi"
+
+        VIRTUAL_ENV = os.environ.get("VIRTUAL_ENV", "")
+
+        # Check for '/uv/' in VIRTUAL_ENV
+        if (os.path.sep + "uv" + os.path.sep) in VIRTUAL_ENV:
+            return "uv"
+
+        # Check for virtualenv/pip
+        if hasattr(sys, "real_prefix") or (
+            hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
+        ):
+            return "pip"
+
+        # If no specific markers found, default to pip
+        return "pip"
+    except Exception:
+        # Fallback to pip
+        return "pip"
+
+#+END_SRC
+* settings
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._config.settings
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_config/settings.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+
+#+END_SRC
+** @dataclass: Class GlobalSettings
+#+BEGIN_SRC python
+@dataclass
+class GlobalSettings:
+    DEVELOPMENT_MODE: bool = False
+    QUIET: bool = False
+    YES: bool = False
+    CHECK_STATUS_UPDATE: bool = False
+    TRACING: bool = os.getenv("MARIMO_TRACING", "false") in ("true", "1")
+    PROFILE_DIR: str | None = None
+    LOG_LEVEL: int = logging.WARNING
+    MANAGE_SCRIPT_METADATA: bool = os.getenv(
+        "MARIMO_MANAGE_SCRIPT_METADATA", "false"
+    ) in ("true", "1")
+    IN_SECURE_ENVIRONMENT: bool = os.getenv(
+        "MARIMO_IN_SECURE_ENVIRONMENT", "false"
+    ) in ("true", "1")
+
+#+END_SRC
+** Assignment GLOBAL_SETTINGS = GlobalSettings()
+#+BEGIN_SRC python
+GLOBAL_SETTINGS = GlobalSettings()
+
+#+END_SRC
+* utils
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._config.utils
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_config/utils.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import os
+from typing import Optional, cast
+
+from marimo import _loggers
+from marimo._config.config import (
+    DEFAULT_CONFIG,
+    MarimoConfig,
+    PartialMarimoConfig,
+    merge_default_config,
+)
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Assignment CONFIG_FILENAME = ".marimo.toml"
+#+BEGIN_SRC python
+CONFIG_FILENAME = ".marimo.toml"
+
+#+END_SRC
+** Function _is_parent
+#+BEGIN_SRC python
+def _is_parent(parent_path: str, child_path: str) -> bool:
+    # Check if parent is actually a parent of child
+    # paths must be real/absolute paths
+    try:
+        return os.path.commonpath([parent_path]) == os.path.commonpath(
+            [parent_path, child_path]
+        )
+    except Exception:
+        return False
+
+#+END_SRC
+** Function _check_directory_for_file
+#+BEGIN_SRC python
+def _check_directory_for_file(directory: str, filename: str) -> Optional[str]:
+    config_path = os.path.join(directory, filename)
+    if os.path.isfile(config_path):
+        return config_path
+    return None
+
+#+END_SRC
+** Function _xdg_config_path
+#+BEGIN_SRC python
+def _xdg_config_path() -> str:
+    """Search XDG paths for marimo config file"""
+    home_expansion = os.path.expanduser("~")
+    home_directory = os.path.realpath(home_expansion)
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        home_directory, ".config"
+    )
+    return os.path.join(xdg_config_home, "marimo", "marimo.toml")
+
+#+END_SRC
+** Function get_or_create_config_path
+#+BEGIN_SRC python
+def get_or_create_config_path() -> str:
+    """Find path of config file, or create it
+
+    If no config file is found, one will be created under the proper XDG path
+    (i.e. `~/.config/marimo` or `$XDG_CONFIG_HOME/marimo`)
+    """
+    current_config_path = get_config_path()
+    if current_config_path:
+        return current_config_path
+    else:
+        config_path = _xdg_config_path()
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        open(config_path, "a").close()
+        return config_path
+
+#+END_SRC
+** Function get_config_path
+#+BEGIN_SRC python
+def get_config_path() -> Optional[str]:
+    """Find path of config file (.marimo.toml).
+
+    Searches from current directory to home, return the first config file
+    found, if Any.
+
+    If current directory isn't contained in home, just searches current
+    directory and home.
+
+    If not found between current directory and home, will search XDG paths
+    (i.e. `~/.config/marimo` and `$XDG_CONFIG_HOME/marimo`).
+
+    May raise an OSError.
+    """
+
+    # we use os.path.realpath to canonicalize paths, just in case
+    # some these functions don't eliminate symlinks on some platforms
+    current_directory = os.path.realpath(os.getcwd())
+    home_expansion = os.path.expanduser("~")
+    if home_expansion == "~":
+        # path expansion failed
+        return None
+    home_directory = os.path.realpath(home_expansion)
+
+    if not _is_parent(home_directory, current_directory):
+        # Can't search back to home, since current_directory not in
+        # home_directory
+        config_path = _check_directory_for_file(
+            current_directory, CONFIG_FILENAME
+        )
+        if config_path is not None:
+            return config_path
+    else:
+        previous_directory = None
+        # Search up to home; terminate when at home or at a fixed point
+        while (
+            current_directory != home_directory
+            and current_directory != previous_directory
+        ):
+            previous_directory = current_directory
+            config_path = os.path.join(current_directory, CONFIG_FILENAME)
+            if os.path.isfile(config_path):
+                return config_path
+            else:
+                current_directory = os.path.realpath(
+                    os.path.dirname(current_directory)
+                )
+
+    config_path = os.path.join(home_directory, CONFIG_FILENAME)
+    if os.path.isfile(config_path):
+        return config_path
+
+    xdg_config_path = _xdg_config_path()
+    if os.path.isfile(xdg_config_path):
+        return xdg_config_path
+
+    return None
+
+#+END_SRC
+** Function load_config
+#+BEGIN_SRC python
+def load_config() -> MarimoConfig:
+    """Load configuration, taking into account user config file, if any."""
+    try:
+        path = get_config_path()
+    except OSError as e:
+        path = None
+        msg = "Encountered error when searching for config: %s"
+        LOGGER.warning(msg, str(e))
+
+    if path is not None:
+        LOGGER.debug("Using config at %s", path)
+        try:
+            import tomlkit
+
+            with open(path, "rb") as f:
+                user_config = tomlkit.parse(f.read())
+        except Exception as e:
+            LOGGER.error("Failed to read user config at %s", path)
+            LOGGER.error(str(e))
+            return DEFAULT_CONFIG
+        return merge_default_config(cast(PartialMarimoConfig, user_config))
+    else:
+        LOGGER.debug("No config found; loading default settings.")
+    return DEFAULT_CONFIG
+
+#+END_SRC

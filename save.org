@@ -1,0 +1,2238 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._save
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/__init__.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from marimo._save.save import cache, lru_cache, persistent_cache
+
+#+END_SRC
+** Assignment __all__ = ["cache", "lru_cache", "persistent_cache"]
+#+BEGIN_SRC python
+__all__ = ["cache", "lru_cache", "persistent_cache"]
+
+#+END_SRC
+* ast
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.ast
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/ast.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import inspect
+import textwrap
+from typing import Any, Callable, Sequence, cast
+
+from marimo._utils.variables import unmangle_local
+
+#+END_SRC
+** Class BlockException
+#+BEGIN_SRC python
+class BlockException(Exception):
+    pass
+
+#+END_SRC
+** Function compiled_ast
+#+BEGIN_SRC python
+def compiled_ast(block: Sequence[ast.AST | ast.stmt]) -> ast.Module:
+    return cast(
+        ast.Module,
+        compile(
+            ast.Module(block, type_ignores=[]),
+            # <ast> is non-standard as a filename, but easier to debug than
+            # <module> everywhere.
+            "<ast>",
+            mode="exec",
+            flags=ast.PyCF_ONLY_AST | ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+            optimize=0,
+            dont_inherit=True,
+        ),
+    )
+
+#+END_SRC
+** Function clean_to_modules
+#+BEGIN_SRC python
+def clean_to_modules(
+    pre_block: list[ast.AST], block: ast.With
+) -> tuple[ast.Module, ast.Module]:
+    """Standardizes a `with` block to modules.
+
+    Consider
+
+    >>> <pre_block>
+    >>> ...
+    >>> </pre_block>
+    >>> with fn(val:=other) as x:
+    >>>   <block>
+    >>>   ...
+    >>>   </block>
+
+    We want to compile <pre_block>, and <block> into two separate modules,
+    however, line 4 removes the context of "x" and "val", so this is adjusted
+    to:
+
+    >>> <pre_block>
+    >>> ...
+    >>> x = fn(val := other)
+    >>> </pre_block>
+    >>> <block>
+    >>> ...
+    >>> </block>
+    """
+    assert len(block.items) == 1, "Unexpected with block structure."
+    (with_block,) = block.items
+    initializer: ast.AST = with_block.context_expr
+    if with_block.optional_vars:
+        initializer = ast.Assign(
+            targets=[with_block.optional_vars],
+            value=initializer,
+        )
+    else:
+        # Edgecase with no "as" clause.
+        initializer = ast.Expr(value=initializer)
+    initializer.lineno = len(pre_block) + 1
+    initializer.col_offset = 0
+    pre_block.append(initializer)
+    return (compiled_ast(pre_block), compiled_ast(block.body))
+
+#+END_SRC
+** Class ExtractWithBlock
+#+BEGIN_SRC python
+class ExtractWithBlock(ast.NodeTransformer):
+    def __init__(self, line: int, *arg: Any, **kwargs: Any) -> None:
+        super().__init__(*arg, **kwargs)
+        self.target_line = line
+
+    def generic_visit(self, node: ast.AST) -> tuple[ast.Module, ast.Module]:  #  type: ignore[override]
+        pre_block = []
+
+        # There are a few strange edges cases like:
+        # >>> with open("file.txt"): pass
+        #
+        # It's difficult to properly delineate the block, so if multiple
+        # things map to the same line number, it's best to throw an error.
+        on_line = []
+        previous = None
+
+        assert isinstance(node, list), "Unexpected block structure."
+        for n in node:
+            if n.lineno < self.target_line:
+                pre_block.append(n)
+                previous = n
+            elif n.lineno == self.target_line:
+                on_line.append(n)
+            # The target line can easily be skipped if there are comments or
+            # white space or if the block is contained within another block.
+            else:
+                break
+
+        # Capture the edge case when the block is contained within another.
+        # These cases are explicitly restricted to If and other With blocks,
+        # excluding by omission try, for, classes and functions.
+        if len(on_line) == 0:
+            if isinstance(previous, (ast.With, ast.If)):
+                try:
+                    # Recursion by referring the the containing block also
+                    # captures the case where the target line number was not
+                    # exactly hit.
+                    return ExtractWithBlock(self.target_line).generic_visit(
+                        previous.body  # type: ignore[arg-type]
+                    )
+                except BlockException:
+                    on_line.append(previous)
+            else:
+                raise BlockException(
+                    "persistent_cache cannot be invoked within a block "
+                    "(try moving the block within the persistent_cache scope)."
+                )
+        # Intentionally not elif (on_line can be added in previous block)
+        if len(on_line) == 1:
+            assert isinstance(on_line[0], ast.With), "Unexpected block."
+            return clean_to_modules(pre_block, on_line[0])
+        # It should be possible to relate the lines with the AST,
+        # but reduce potential bugs by just throwing an error.
+        raise BlockException(
+            "Saving on a shared line may lead to unexpected behavior."
+        )
+
+#+END_SRC
+** Class DeprivateVisitor
+#+BEGIN_SRC python
+class DeprivateVisitor(ast.NodeTransformer):
+    """Removes the mangling of private variables from a module."""
+
+    def visit_Name(self, node: ast.Name) -> ast.Name:
+        node.id = unmangle_local(node.id).name
+        return node
+
+    def generic_visit(self, node: ast.AST) -> ast.AST:
+        if hasattr(node, "name") and node.name:
+            node.name = unmangle_local(node.name).name
+        return super().generic_visit(node)
+
+#+END_SRC
+** Class RemoveReturns
+#+BEGIN_SRC python
+class RemoveReturns(ast.NodeTransformer):
+    # NB: Won't work for generators since not replacing Yield.
+    # Note that functools caches the generator, which is then dequeue'd,
+    # so in that sense, it doesn't work either.
+    def visit_Return(self, node: ast.Return) -> ast.Expr:
+        expr = ast.Expr(value=node.value)
+        expr.lineno = node.lineno
+        expr.col_offset = node.col_offset
+        return expr
+
+#+END_SRC
+** Function strip_function
+#+BEGIN_SRC python
+def strip_function(fn: Callable[..., Any]) -> ast.Module:
+    code, _ = inspect.getsourcelines(fn)
+    function_ast = ast.parse(textwrap.dedent("".join(code)))
+    body = function_ast.body.pop()
+    assert isinstance(
+        body, (ast.FunctionDef, ast.AsyncFunctionDef)
+    ), "Expected a function definition"
+    extracted = ast.Module(body.body, type_ignores=[])
+    module = RemoveReturns().visit(extracted)
+    assert isinstance(module, ast.Module), "Expected a module"
+    return module
+
+#+END_SRC
+* cache
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.cache
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/cache.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import re
+from collections import namedtuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, Optional, get_args
+
+from marimo._plugins.ui._core.ui_element import UIElement
+from marimo._runtime.context import ContextNotInitializedError, get_context
+from marimo._runtime.state import SetFunctor
+
+#+END_SRC
+** Assignment CacheType
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from marimo._ast.visitor import Name
+
+CacheType = Literal[
+    "ContextExecutionPath",
+    "ContentAddressed",
+    "ExecutionPath",
+    "Pure",
+    "Deferred",
+    "Unknown",
+]
+
+#+END_SRC
+** Assignment CACHE_PREFIX
+#+BEGIN_SRC python
+# Easy visual identification of cache type.
+CACHE_PREFIX: dict[CacheType, str] = {
+    "ContextExecutionPath": "X_",
+    "ContentAddressed": "C_",
+    "ExecutionPath": "E_",
+    "Pure": "P_",
+    "Deferred": "D_",
+    "Unknown": "U_",
+}
+
+#+END_SRC
+** Assignment ValidCacheSha = namedtuple("ValidCacheSha", ("sha", "cache_type"))
+#+BEGIN_SRC python
+ValidCacheSha = namedtuple("ValidCacheSha", ("sha", "cache_type"))
+
+#+END_SRC
+** Assignment MetaKey = Literal["return"]
+#+BEGIN_SRC python
+MetaKey = Literal["return"]
+
+#+END_SRC
+** Class CacheException
+#+BEGIN_SRC python
+# BaseException because "raise _ as e" is utilized.
+class CacheException(BaseException):
+    pass
+
+#+END_SRC
+** @dataclass: Class Cache
+#+BEGIN_SRC python
+@dataclass
+class Cache:
+    defs: dict[Name, Any]
+    hash: str
+    stateful_refs: set[str]
+    cache_type: CacheType
+    hit: bool
+    # meta corresponds to internally used data, kept as a dictionary to allow
+    # for backwards pickle compatibility with future entries.
+    # TODO: Utilize to store code and output in cache.
+    # TODO: Consider storing graph information such that execution history can
+    # be explored and visualized.
+    meta: dict[MetaKey, Any]
+
+    def restore(self, scope: dict[str, Any]) -> None:
+        """Restores values from cache, into scope."""
+        for var, lookup in self.contextual_defs():
+            scope[lookup] = self.defs[var]
+
+        defs = {**globals(), **scope}
+        for ref in self.stateful_refs:
+            if ref not in defs:
+                raise CacheException(
+                    "Failure while restoring cached values. "
+                    "Cache expected a reference to a "
+                    f"variable that is not present ({ref})."
+                )
+            value = defs[ref]
+            if isinstance(value, SetFunctor):
+                value(self.defs[ref])
+            # UI Values cannot be easily programmatically set, so only update
+            # state values.
+            elif not isinstance(value, UIElement):
+                raise CacheException(
+                    "Failure while restoring cached values. "
+                    "Unexpected stateful reference type "
+                    f"({type(ref)}:{ref})."
+                )
+
+    def update(
+        self,
+        scope: dict[str, Any],
+        meta: Optional[dict[MetaKey, Any]] = None,
+    ) -> None:
+        """Loads values from scope, updating the cache."""
+        for var, lookup in self.contextual_defs():
+            self.defs[var] = scope[lookup]
+
+        self.meta = {}
+        if meta is not None:
+            for key, value in meta.items():
+                if key not in get_args(MetaKey):
+                    raise CacheException(f"Unexpected meta key: {key}")
+                self.meta[key] = value
+
+        defs = {**globals(), **scope}
+        for ref in self.stateful_refs:
+            if ref not in defs:
+                raise CacheException(
+                    "Failure while saving cached values. "
+                    "Cache expected a reference to a "
+                    f"variable that is not present ({ref})."
+                )
+            value = defs[ref]
+            if isinstance(value, SetFunctor):
+                self.defs[ref] = value._state()
+            elif isinstance(value, UIElement):
+                self.defs[ref] = value.value
+            else:
+                raise CacheException(
+                    "Failure while saving cached values. "
+                    "Unexpected stateful reference type "
+                    f"({type(value)}:{ref})."
+                )
+
+    def contextual_defs(self) -> dict[tuple[Name, Name], Any]:
+        """Uses context to resolve private variable names."""
+        try:
+            context = get_context().execution_context
+            assert context is not None, "Context could not be resolved"
+            private_prefix = f"_cell_{context.cell_id}_"
+        except (ContextNotInitializedError, AssertionError):
+            private_prefix = r"^_cell_\w+_"
+
+        return {
+            (var, re.sub(r"^_", private_prefix, var)): value
+            for var, value in self.defs.items()
+            if var not in self.stateful_refs
+        }
+
+#+END_SRC
+* hash
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.hash
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/hash.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import base64
+import hashlib
+import inspect
+import struct
+import sys
+import types
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Optional
+
+from marimo._ast.visitor import Name, ScopedVisitor
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._plugins.ui._core.ui_element import UIElement
+from marimo._runtime.context import ContextNotInitializedError, get_context
+from marimo._runtime.primitives import (
+    FN_CACHE_TYPE,
+    is_data_primitive,
+    is_data_primitive_container,
+    is_primitive,
+    is_pure_function,
+)
+from marimo._runtime.state import SetFunctor, State
+from marimo._save.ast import DeprivateVisitor
+from marimo._save.cache import Cache, CacheType
+from marimo._utils.variables import (
+    get_cell_from_local,
+    if_local_then_mangle,
+    unmangle_local,
+)
+
+#+END_SRC
+** Assignment DEFAULT_HASH = "sha256"
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from types import CodeType
+
+    from marimo._ast.cell import CellId_t, CellImpl
+    from marimo._runtime.context.types import RuntimeContext
+    from marimo._runtime.dataflow import DirectedGraph
+    from marimo._save.loaders import Loader
+
+    # Union[list, torch.Tensor, jax.numpy.ndarray,
+    #             np.ndarray, scipy.sparse.spmatrix]
+    Tensor = Any
+
+
+# Default hash type is generally inconsequential, there may be implications of
+# malicious hash collision or performance. Malicious hash collision can be
+# mitigated with a signed cache, and performance is neligible compared to the
+# rest of the hashing mechanism.
+DEFAULT_HASH = "sha256"
+
+#+END_SRC
+** Class SerialRefs
+#+BEGIN_SRC python
+# NamedTuple over dataclass for unpacking.
+class SerialRefs(NamedTuple):
+    refs: set[Name]
+    content_serialization: dict[Name, bytes]
+    stateful_refs: set[Name]
+
+#+END_SRC
+** Class ShadowedRef
+#+BEGIN_SRC python
+class ShadowedRef:
+    """Stub for scoped variables that may shadow global references"""
+
+#+END_SRC
+** Function hash_module
+#+BEGIN_SRC python
+def hash_module(
+    code: Optional[CodeType], hash_type: str = DEFAULT_HASH
+) -> bytes:
+    hash_alg = hashlib.new(hash_type, usedforsecurity=False)
+    if not code:
+        # Hash of zeros, in the case of no code object as a recognizable noop.
+        # Artifact of typing for mypy, but reasonable fallback.
+        return b"0" * len(hash_alg.digest())
+
+    def process(code_obj: CodeType) -> None:
+        # Recursively hash the constants that are also code objects
+        for const in code_obj.co_consts:
+            if isinstance(const, types.CodeType):
+                process(const)
+            else:
+                hash_alg.update(str(const).encode("utf8"))
+        # Concatenate the names and bytecode of the current code object
+        # Will cause invalidation of variable naming at the top level
+        hash_alg.update(bytes("|".join(code_obj.co_names), "utf8"))
+        hash_alg.update(code_obj.co_code)
+
+    process(code)
+    return hash_alg.digest()
+
+#+END_SRC
+** Function hash_raw_module
+#+BEGIN_SRC python
+def hash_raw_module(
+    module: ast.Module, hash_type: str = DEFAULT_HASH
+) -> bytes:
+    # AST has to be compiled to code object prior to process.
+    return hash_module(
+        compile(
+            module,
+            "<hash>",
+            mode="exec",
+            flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+        ),
+        hash_type,
+    )
+
+#+END_SRC
+** Function hash_cell_impl
+#+BEGIN_SRC python
+def hash_cell_impl(cell: CellImpl, hash_type: str = DEFAULT_HASH) -> bytes:
+    return hash_module(cell.body, hash_type) + hash_module(
+        cell.last_expr, hash_type
+    )
+
+#+END_SRC
+** Function standardize_tensor
+#+BEGIN_SRC python
+def standardize_tensor(tensor: Tensor) -> Optional[Tensor]:
+    if (
+        hasattr(tensor, "__array__")
+        or hasattr(tensor, "toarray")
+        or hasattr(tensor, "__array_interface__")
+    ):
+        DependencyManager.numpy.require("to access data buffer for hashing.")
+        import numpy
+
+        if not hasattr(tensor, "__array_interface__"):
+            # Capture those sparse cases
+            if hasattr(tensor, "toarray"):
+                tensor = tensor.toarray()
+        # As array should not perform copy
+        return numpy.asarray(tensor)
+    raise ValueError(
+        f"Expected a data primitive object, but got {type(tensor)} instead."
+        "This maybe is an internal marimo issue. Please report to "
+        "https://github.com/marimo-team/marimo/issues."
+    )
+
+#+END_SRC
+** Function type_sign
+#+BEGIN_SRC python
+def type_sign(value: bytes, label: str) -> bytes:
+    # Appending all strings with a key disambiguates it from other types. e.g.
+    # when the string value is the same as a float pack, or is the literal
+    # ":none". If our content strings take the form: integrity + delimiter then
+    # these types of collisions become very hard.
+    #
+    # Note that this does not fully protect against cache poisoning, as an
+    # attacker can override python internals to provide a matched hash. A key
+    # signed cache result is the only way to properly protect against this.
+    #
+    # Additionally, (less meaningful, but still possible)- a byte collision can
+    # be manufactured by choosing data so long that the length of the data acts
+    # as the data injection.
+    #
+    # TODO: Benchmark something like `sha1 (integrity) + delimiter`, this
+    # method is chosen because it was assumed to be fast, but might be slow
+    # with a copy of large data.
+    return b"".join([value, bytes(len(value)), bytes(":" + label, "utf-8")])
+
+#+END_SRC
+** Function iterable_sign
+#+BEGIN_SRC python
+def iterable_sign(value: Iterable[Any], label: str) -> bytes:
+    values = list(value)
+    return b"".join(
+        [b"".join(values), bytes(len(values)), bytes(":" + label, "utf-8")]
+    )
+
+#+END_SRC
+** Function primitive_to_bytes
+#+BEGIN_SRC python
+def primitive_to_bytes(value: Any) -> bytes:
+    if value is None:
+        return b":none"
+    if isinstance(value, str):
+        return type_sign(bytes(f"{value}", "utf-8"), "str")
+    if isinstance(value, float):
+        return type_sign(struct.pack("d", value), "float")
+    if isinstance(value, int):
+        return type_sign(struct.pack("q", value), "int")
+    if isinstance(value, tuple):
+        return iterable_sign(map(primitive_to_bytes, value), "tuple")
+    return type_sign(bytes(value), "bytes")
+
+#+END_SRC
+** Function common_container_to_bytes
+#+BEGIN_SRC python
+def common_container_to_bytes(value: Any) -> bytes:
+    visited: dict[int, int] = {}
+
+    def recurse_container(value: Any) -> bytes:
+        if id(value) in visited:
+            return type_sign(bytes(visited[id(value)]), "id")
+        if isinstance(value, dict):
+            visited[id(value)] = len(visited)
+            return iterable_sign(
+                map(recurse_container, sorted(value.items())), "dict"
+            )
+        if isinstance(value, list):
+            visited[id(value)] = len(visited)
+            return iterable_sign(map(recurse_container, value), "list")
+        if isinstance(value, set):
+            visited[id(value)] = len(visited)
+            return iterable_sign(map(recurse_container, sorted(value)), "set")
+        # Tuple may be only data primitive, not fully primitive.
+        if isinstance(value, tuple):
+            return iterable_sign(map(recurse_container, value), "tuple")
+
+        if is_primitive(value):
+            return primitive_to_bytes(value)
+        return data_to_buffer(value)
+
+    return recurse_container(value)
+
+#+END_SRC
+** Function data_to_buffer
+#+BEGIN_SRC python
+def data_to_buffer(data: Tensor) -> bytes:
+    data = standardize_tensor(data)
+    # From joblib.hashing
+    if data.shape == ():
+        # 0d arrays need to be flattened because viewing them as bytes
+        # raises a ValueError exception.
+        data_c_contiguous = data.flatten()
+    elif data.flags.c_contiguous:
+        data_c_contiguous = data
+    elif data.flags.f_contiguous:
+        data_c_contiguous = data.T
+    else:
+        # Cater for non-single-segment arrays, this creates a copy, and thus
+        # alleviates this issue. Note: There might be a more efficient way of
+        # doing this, check for joblib updates.
+        data_c_contiguous = data.flatten()
+    return type_sign(memoryview(data_c_contiguous.view("uint8")), "data")
+
+#+END_SRC
+** Function attempt_signed_bytes
+#+BEGIN_SRC python
+def attempt_signed_bytes(value: bytes, label: str) -> bytes:
+    # Prevents hash collisions like:
+    # >>> fib(1)
+    # >>> s, _ = state(1)
+    # >>> fib(s)
+    # ^ would be a cache hit as is even though fib(s) would fail by
+    # itself
+    try:
+        return type_sign(common_container_to_bytes(value), label)
+    # Fallback to raw state for eval in content hash.
+    except TypeError:
+        return value
+
+#+END_SRC
+** Function get_and_update_context_from_scope
+#+BEGIN_SRC python
+def get_and_update_context_from_scope(
+    scope: dict[str, Any],
+    scope_refs: Optional[set[Name]] = None,
+) -> Optional[RuntimeContext]:
+    """Get stateful registers"""
+
+    # Remove non-global references
+    ctx_scope = set(scope)
+    if scope_refs is None:
+        scope_refs = set()
+    for ref in scope_refs:
+        if ref in ctx_scope:
+            ctx_scope.remove(ref)
+
+    # This is typically done in post execution hook, but it will not be
+    # called in script mode.
+    # TODO: Strip this out to allow for hash based look up. Name based
+    # lookup fails for anonymous instances of state and UI Elements.
+    try:
+        ctx = get_context()
+        ctx.ui_element_registry.register_scope(scope)
+        ctx.state_registry.register_scope(scope)
+        return ctx
+    except ContextNotInitializedError:
+        return None
+
+#+END_SRC
+** Class BlockHasher
+#+BEGIN_SRC python
+class BlockHasher:
+    def __init__(
+        self,
+        module: ast.Module,
+        graph: DirectedGraph,
+        cell_id: CellId_t,
+        scope: dict[str, Any],
+        *,
+        context: Optional[ast.Module] = None,
+        pin_modules: bool = False,
+        hash_type: str = DEFAULT_HASH,
+        apply_content_hash: bool = True,
+        scoped_refs: Optional[set[Name]] = None,
+    ) -> None:
+        """Hash the context of the module, and return a cache object.
+
+        Hashing uses 3 combined methods: pure hashing, content addressed, and
+        execution path:
+
+        1) "Pure" hashing is used when a block has no references. The hash is
+        computed from the code itself.
+
+        2) "Content Addressed" hashing is used when all references are known
+        and are shown to be primitive types (like a "pure" function).
+
+        3) "Execution Path" hashing is when objects may contain state or other
+        hidden values that are difficult to hash deterministically. For this,
+        the code used to produce the object is used as the basis of the hash.
+        It follows that code which does not change, will produce the same
+        output. This draws inspiration from hashing methods in Nix. One notable
+        difference between these methods is that Nix sandboxes all execution,
+        preventing external file access, and internet. Sources of
+        non-determinism are not accounted for in this implementation, and are
+        left to the user.
+
+        In both cases, as long as the module is deterministic, the output will
+        be deterministic. NB. The ContextExecutionPath is an extended case of
+        ExecutionPath hashing, just utilizing additional context.
+
+        For optimization, the content hash is performed after the execution
+        cache- however the content references are collected first. This
+        deferred content hash is useful in cases like repeated calls to a
+        cached function.
+
+        Args:
+          - module: The code content to create a hash for (e.g.
+            for persistent_cache, the body of the `With` statement).
+          - graph: The dataflow graph of the notebook.
+          - cell_id: The cell id attached to the module.
+          - scope: The definitions of (globals) available in execution context.
+          - context: The "context" of the module, is a module corresponding
+            additional execution context for the cell. For instance, in
+            persistent_cache case, this applies to the code prior to
+            invocation, but still in the same cell.
+          - pin_modules: If True, then the module will be pinned to the version
+          - hash_type: The type of hash to use.
+          - apply_content_hash: If True, then the content hash will be
+            attempted, otherwise only use execution path hash.
+          - scoped_refs: A set of references that cannot be traced via
+            execution path, and must be accounted for via content hashing.
+        """
+
+        # Hash should not be pinned to cell id
+        scope = {unmangle_local(k, cell_id).name: v for k, v in scope.items()}
+        self.module = DeprivateVisitor().visit(module)
+
+        if not scoped_refs:
+            scoped_refs = set()
+        else:
+            assert (
+                not apply_content_hash
+            ), "scoped_refs should only be used with deferred hashing."
+
+        self._hash: Optional[str] = None
+        self.graph = graph
+        self.cell_id = cell_id
+        self.pin_modules = pin_modules
+        self.fn_cache: FN_CACHE_TYPE = {}
+
+        # Empty name, so we can match and fill in cell context on load.
+        self.visitor = ScopedVisitor("", ignore_local=True)
+        self.visitor.visit(module)
+        # Determine immediate references
+        refs = set(self.visitor.refs)
+        self.defs = self.visitor.defs
+
+        # Deferred hashing (i.e. instantiation without applying content hash),
+        # may yield missing references.
+        self.missing: set[Name] = set()
+        if not apply_content_hash:
+            refs, self.missing = self.extract_missing_ref(refs, scope)
+
+        ctx = get_and_update_context_from_scope(scope)
+        refs, _, stateful_refs = self.extract_ref_state_and_normalize_scope(
+            refs, scope, ctx
+        )
+        self.stateful_refs = stateful_refs
+
+        # usedforsecurity=False used to satisfy some static analysis tools.
+        self.hash_alg = hashlib.new(hash_type, usedforsecurity=False)
+
+        # Hold on to each ref type
+        self.content_refs = set(refs)
+        self.execution_refs = set(refs)
+        self.context_refs = set(refs)
+
+        # Default type, means that there are no references at all.
+        cache_type: CacheType = "Pure"
+
+        # TODO: Consider memoizing the serialized contents and hashed cells,
+        # such that a parent cell's BlockHasher can be used to speed up the
+        # hashing of child.
+
+        # Collect references that will be utilized for a content hash.
+        content_serialization: dict[Name, bytes] = {}
+        if refs:
+            cache_type = "ContentAddressed"
+            refs, content_serialization, stateful_refs = (
+                self.collect_for_content_hash(
+                    refs, scope, ctx, scoped_refs, apply_hash=False
+                )
+            )
+            self.stateful_refs |= stateful_refs
+        self.content_refs -= refs
+
+        # If there are still unaccounted for references, then fallback on
+        # execution hashing.
+        if refs:
+            cache_type = "ExecutionPath"
+            refs = self.hash_and_dequeue_execution_refs(refs)
+        self.execution_refs -= refs | self.content_refs
+
+        # Remove values that should be provided by external scope.
+        refs -= scoped_refs
+
+        # If there are remaining references, they should be part of the
+        # provided context.
+        if refs:
+            cache_type = "ContextExecutionPath"
+            self.hash_and_verify_context_refs(refs, context)
+        self.context_refs -= refs | self.content_refs | self.execution_refs
+
+        # Now run the content hash on the content refs.
+        if apply_content_hash:
+            self._apply_content_hash(content_serialization)
+        elif self.missing:
+            cache_type = "Deferred"
+
+        # Finally, utilize the unrun block itself, and clean up.
+        self.cache_type = cache_type
+        self.hash_alg.update(hash_raw_module(module, hash_type))
+
+    @staticmethod
+    def from_parent(
+        parent: BlockHasher,
+    ) -> BlockHasher:
+        # Use a previous block as the basis of a new block.
+        block = BlockHasher.__new__(BlockHasher)
+        block.module = parent.module
+        block.graph = parent.graph
+        block.cell_id = parent.cell_id
+        block.pin_modules = parent.pin_modules
+        block.fn_cache = {}
+        if parent.fn_cache is not None:
+            block.fn_cache = dict(parent.fn_cache)
+        block.visitor = parent.visitor
+        block.defs = set(parent.defs)
+        block.stateful_refs = set(parent.stateful_refs)
+        block.hash_alg = parent.hash_alg.copy()
+        block._hash = None
+        block.cache_type = parent.cache_type
+        block.content_refs = set(parent.content_refs)
+        block.execution_refs = set(parent.execution_refs)
+        block.context_refs = set(parent.context_refs)
+        return block
+
+    @property
+    def hash(self) -> str:
+        if self._hash is None:
+            assert self.hash_alg is not None, "Hash algorithm not initialized."
+            self._hash = (
+                base64.urlsafe_b64encode(self.hash_alg.digest())
+                .decode("utf-8")
+                .strip("=")
+            )
+        return self._hash
+
+    def __hash__(self) -> int:
+        return hash(self.hash)
+
+    def _apply_content_hash(
+        self, content_serialization: dict[Name, bytes]
+    ) -> None:
+        self._hash = None
+        for ref in sorted(content_serialization):
+            self.hash_alg.update(content_serialization[ref])
+
+    def collect_for_content_hash(
+        self,
+        refs: set[Name],
+        scope: dict[str, Any],
+        ctx: Optional[RuntimeContext],
+        scoped_refs: set[Name],
+        apply_hash: bool = True,
+    ) -> SerialRefs:
+        self._hash = None
+        refs, content_serialization, _ = (
+            self.serialize_and_dequeue_content_refs(refs, scope)
+        )
+        # If scoped refs are present, then they are unhashable
+        # and we should fallback to normal hash or fail.
+        if unhashable := (refs & scoped_refs) - self.execution_refs:
+            # pickle is a python default
+            import pickle
+
+            failed = []
+            exceptions = []
+            # By rights, could just fail here - but this final attempt should
+            # provide better user experience.
+            for ref in unhashable:
+                try:
+                    _hashed = pickle.dumps(scope[ref])
+                    content_serialization[ref] = type_sign(_hashed, "pickle")
+                    refs.remove(ref)
+                except (pickle.PicklingError, TypeError) as e:
+                    exceptions.append(e)
+                    failed.append(ref)
+            if failed:
+                # Ruff didn't like a lambda here
+                def get_type(ref: Name) -> str:
+                    return (
+                        str(type(item)) if (item := scope[ref]) else "missing"
+                    )
+
+                ref_list = ", ".join(
+                    [
+                        f"{ref}: {get_type(ref)} ({str(e)})"
+                        for ref, e in zip(failed, exceptions)
+                    ]
+                )
+                # Note ExceptionGroup nicest here, but only available in 3.11
+                # ExceptionGroup(msg, exceptions)
+                raise TypeError(
+                    "Content addressed hash could not be utilized. "
+                    "Try defining the dependent sections in a separate cell. "
+                    "The unhashable arguments/ references are: " + ref_list
+                )
+
+        # Given an active thread, extract state based variables that
+        # influence the graph, and hash them accordingly.
+        if ctx:
+            (
+                refs,
+                content_serialization_tmp,
+                stateful_refs,
+            ) = self.serialize_and_dequeue_stateful_content_refs(
+                refs, scope, ctx
+            )
+            content_serialization.update(content_serialization_tmp)
+        else:
+            stateful_refs = set()
+
+        if apply_hash:
+            self._apply_content_hash(content_serialization)
+        return SerialRefs(refs, content_serialization, stateful_refs)
+
+    def extract_missing_ref(
+        self,
+        refs: set[Name],
+        scope: dict[str, Any],
+    ) -> tuple[set[Name], set[Name]]:
+        _refs = set(refs)
+        missing = set()
+        for ref in refs:
+            # The block will likely throw a NameError, so remove and defer to
+            # execution.
+            if ref in scope.get("__builtins__", ()):
+                continue
+            if ref not in scope:
+                _refs.remove(ref)
+                missing.add(ref)
+        return _refs, missing
+
+    def extract_ref_state_and_normalize_scope(
+        self,
+        refs: set[Name],
+        scope: dict[str, Any],
+        ctx: Optional[RuntimeContext] = None,
+    ) -> SerialRefs:
+        """
+        Preprocess the scope and references, and extract state references.
+
+        This method performs the following operations:
+        1. Removes references that are not present in the scope.
+        2. Identifies and returns stateful references.
+        3. Adjusts the scope, replacing UI elements and state setters with
+           their corresponding values.
+
+        Args:
+            refs: A set of reference names.
+            scope: A dictionary representing the current scope.
+            ctx: An optional runtime context for stateful lookup.
+
+        Returns:
+            SerialRefs tuple containing the following elements:
+                - The filtered references.
+                - _
+                - The stateful references.
+        """
+        refs = set(refs)
+        stateful_refs = set()
+
+        for ref in set(refs):
+            if ref in scope.get("__builtins__", ()):
+                refs.remove(ref)
+                continue
+
+            # Clean up the scope, and extract missing references.
+            refs, _ = self.extract_missing_ref(refs, scope)
+
+            # State relevant to the context, should be dependent on it's value-
+            # not the object.
+            value: Optional[State[Any]]
+            # Prefer actual object over reference.
+            # Skip if the reference has already been subbed in, or if it is
+            # a shadowed reference.
+            if ref in scope and isinstance(scope[ref], State):
+                value = scope[ref]
+            elif ctx:
+                value = ctx.state_registry.lookup(ref)
+
+            if value is not None and (
+                ref not in scope or isinstance(scope[ref], State)
+            ):
+                scope[ref] = attempt_signed_bytes(value(), "state")
+                if ctx:
+                    for state_name in ctx.state_registry.bound_names(value):
+                        scope[state_name] = scope[ref]
+
+            # Likewise, UI objects should be dependent on their value.
+            if ref in scope and isinstance(scope[ref], UIElement):
+                ui = scope[ref]
+            elif ctx:
+                ui = ctx.ui_element_registry.lookup(ref)
+            if ui is not None and (
+                ref not in scope or isinstance(scope[ref], UIElement)
+            ):
+                scope[ref] = attempt_signed_bytes(ui.value, "ui")
+                if ctx:
+                    for ui_name in ctx.ui_element_registry.bound_names(ui._id):
+                        scope[ui_name] = scope[ref]
+                # If the UI is directly consumed, then hold on to the
+                # reference for proper cache update.
+                stateful_refs.add(ref)
+
+        # State Setters that are not directly consumed, are not needed.
+        for ref in self.visitor.refs:
+            # If the setter is consumed, let the hash be tied to the state
+            # value.
+            if ref in scope and isinstance(scope[ref], SetFunctor):
+                stateful_refs.add(ref)
+                scope[ref] = scope[ref]._state
+
+        return SerialRefs(refs, {}, stateful_refs)
+
+    def serialize_and_dequeue_content_refs(
+        self, refs: set[Name], scope: dict[Name, Any]
+    ) -> SerialRefs:
+        """Use hashable references to update the hash object and dequeue them.
+
+        NB. "Hashable" types are primitives, data primitives, and pure
+        functions. With modules being "hashed" by version number, or ignored.
+
+        Args:
+            refs: A set of reference names unaccounted for.
+            scope: A dictionary representing the current scope.
+
+        Returns a filtered list of remaining references that were not utilized
+        in updating the hash, and a dictionary of the content serialization.
+        """
+        self._hash = None
+
+        content_serialization = {}
+        refs = set(refs)
+        # Content addressed hash is valid if every reference is accounted for
+        # and can be shown to be a primitive value.
+        imports = self.graph.get_imports()
+        for local_ref in sorted(refs):
+            ref = if_local_then_mangle(local_ref, self.cell_id)
+            if ref in imports:
+                # TODO: There may be a way to tie this in with module watching.
+                # e.g. module watcher could mutate the version number based
+                # last updated timestamp.
+                version = ""
+                if self.pin_modules:
+                    module = sys.modules[imports[ref].namespace]
+                    version = getattr(module, "__version__", "")
+
+                content_serialization[ref] = type_sign(
+                    bytes(f"module:{ref}:{version}", "utf-8"), "module"
+                )
+                # No need to watch the module otherwise. If the block depends
+                # on it then it should be caught when hashing the block.
+                refs.remove(local_ref)
+                continue
+            if local_ref not in scope:
+                # ref is somehow not defined, because of execution path
+                # so do not utilize content hash in this case.
+                continue
+            value = scope[local_ref]
+
+            serial_value = None
+            if is_primitive(value):
+                serial_value = primitive_to_bytes(value)
+            elif is_data_primitive(value):
+                serial_value = data_to_buffer(value)
+            elif is_data_primitive_container(value):
+                serial_value = common_container_to_bytes(value)
+            elif is_pure_function(
+                local_ref, value, scope, self.fn_cache, self.graph
+            ):
+                serial_value = hash_module(value.__code__, self.hash_alg.name)
+            # An external module variable is assumed to be pure, with module
+            # pinning being the mechanism for invalidation.
+            elif getattr(value, "__module__", "__main__") == "__main__":
+                continue
+            # External module that is not a class or function, may be some
+            # container we don't know how to hash.
+            # Note, function cases care caught by is_pure_function
+            # And we assume all marimo cases are caught
+            elif not inspect.isclass(
+                value
+            ) and not value.__module__.startswith("marimo"):
+                continue
+
+            if serial_value is not None:
+                content_serialization[ref] = serial_value
+            # Fall through means that the references should be dequeued.
+            refs.remove(local_ref)
+        return SerialRefs(refs, content_serialization, set())
+
+    def serialize_and_dequeue_stateful_content_refs(
+        self,
+        refs: set[Name],
+        scope: dict[str, Any],
+        ctx: RuntimeContext,
+    ) -> SerialRefs:
+        """Determines and uses stateful references that impact the code block.
+
+        Args:
+            refs: A set of reference names.
+            scope: A dictionary representing the current scope.
+            ctx: Runtime context for stateful lookup.
+
+        Returns:
+            tuple of:
+                - The updated references.
+                - A dictionary of the content serialization.
+                - additional stateful references.
+        """
+        refs = set(refs)
+        # Determine _all_ additional relevant references
+        transitive_state_refs = self.graph.get_transitive_references(
+            refs, inclusive=False
+        )
+
+        for ref in transitive_state_refs:
+            if ref in scope and isinstance(scope[ref], ShadowedRef):
+                # TODO(akshayka, dmadisetti): Lift this restriction once
+                # function args are rewritten.
+                #
+                # This makes more sense as a NameError, but the marimo's
+                # explainer text for NameError's doesn't make sense in this
+                # context. ("Definition expected in ...")
+                raise RuntimeError(
+                    f"The cached function declares an argument '{ref}'"
+                    "but a captured function or class uses the "
+                    f"global variable '{ref}'. Please rename "
+                    "the argument, or restructure the use "
+                    f"of the global variable."
+                )
+
+        # Filter for relevant stateful cases.
+        refs |= set(
+            filter(
+                lambda ref: (
+                    ctx.state_registry.lookup(ref) is not None
+                    or ctx.ui_element_registry.lookup(ref) is not None
+                ),
+                transitive_state_refs,
+            )
+        )
+
+        # Need to run extract again for the expanded ref set.
+        refs, _, stateful_refs = self.extract_ref_state_and_normalize_scope(
+            refs, scope, ctx
+        )
+        # Attempt content hash again on the extracted stateful refs.
+        refs, content_serialization, _ = (
+            self.serialize_and_dequeue_content_refs(refs, scope)
+        )
+        return SerialRefs(refs, content_serialization, stateful_refs)
+
+    def hash_and_dequeue_execution_refs(self, refs: set[Name]) -> set[Name]:
+        """Determines and uses the hash of refs' cells to update the hash.
+
+        Args:
+          refs: List of references to account for in cell lookup.
+
+        Returns a list of references that were not utilized in updating the
+        hash. This should only be possible in the case where a cell context is
+        provided, as those references should be accounted for in that context.
+        """
+        self._hash = None
+
+        refs = set(refs)
+        # Execution path works by just analyzing the input cells to hash.
+        ancestors = self.graph.ancestors(self.cell_id)
+        # Prune to only the ancestors that are tied to the references.
+        ref_cells = set().union(
+            *[self.graph.definitions.get(ref, set()) for ref in refs]
+        )
+        to_hash = ancestors & ref_cells
+        for ancestor_id in sorted(to_hash):
+            cell_impl = self.graph.cells[ancestor_id]
+            self.hash_alg.update(hash_cell_impl(cell_impl, self.hash_alg.name))
+            for ref in cell_impl.defs:
+                # Look for both, since mangle reference depends on the context
+                # of the definition.
+                if ref in refs:
+                    refs.remove(ref)
+                unmangled_ref, _ = unmangle_local(ref)
+                if unmangled_ref in refs:
+                    refs.remove(unmangled_ref)
+        return refs
+
+    def hash_and_verify_context_refs(
+        self, refs: set[Name], context: Optional[ast.Module]
+    ) -> None:
+        """Utilizes the provided context to update the hash with sanity check.
+
+        If there are remaining references, they must be part of the provided
+        context. This ensures this is the case, and updates the hash.
+
+        Args:
+          refs: List of references to account for in cell lookup.
+          context: The context of the module, is a module corresponding
+            additional execution context for the cell. For instance, in
+            persistent_cache case, this applies to the code prior to
+            invocation, but still in the same cell.
+        """
+        self._hash = None
+
+        # Native save won't pass down context, so if we are here,
+        # then something is wrong with the remaining references.
+        assert context is not None, (
+            "Execution path could not be resolved. "
+            "There may be cyclic definitions in the code. "
+            f"The unresolved references are: {refs}. "
+            "This is unexpected, please report this issue to "
+            "https://github.com/marimo-team/marimo/issues"
+        )
+
+        ref_cells = set().union(
+            *[self.graph.definitions.get(ref, set()) for ref in refs]
+        )
+        ref_cells |= set(
+            [
+                cell
+                for ref in refs
+                if (cell := get_cell_from_local(ref, self.cell_id))
+            ]
+        )
+        assert len(ref_cells) == 1, (
+            "Inconsistent references, cannot determine execution path. "
+            f"Got {ref_cells} expected set({self.cell_id}). "
+            "This is unexpected, please report this issue to "
+            "https://github.com/marimo-team/marimo/issues"
+        )
+        assert ref_cells == {self.cell_id}, (
+            "Unexpected execution cell residual "
+            f"{ref_cells.pop()} expected {self.cell_id}."
+            "This is unexpected, please report this issue to "
+            "https://github.com/marimo-team/marimo/issues"
+        )
+        self.hash_alg.update(hash_raw_module(context, self.hash_alg.name))
+        # refs have been accounted for at this point. Nothing to return
+
+#+END_SRC
+** Function cache_attempt_from_hash
+#+BEGIN_SRC python
+def cache_attempt_from_hash(
+    module: ast.Module,
+    graph: DirectedGraph,
+    cell_id: CellId_t,
+    scope: dict[str, Any],
+    *,
+    context: Optional[ast.Module] = None,
+    pin_modules: bool = False,
+    hash_type: str = DEFAULT_HASH,
+    scoped_refs: Optional[set[Name]] = None,
+    loader: Loader,
+    as_fn: bool = False,
+) -> Cache:
+    """Hash a code block with context from the same cell, and return a cache
+    object.
+
+    Extra args
+          - loader: The loader to use for cache operations.
+          - as_fn: If True, then the block is treated as a function
+
+    Returns:
+      - A cache object that may, or may not be fully populated.
+    """
+
+    hasher = BlockHasher(
+        module=module,
+        graph=graph,
+        cell_id=cell_id,
+        scope=scope,
+        context=context,
+        pin_modules=pin_modules,
+        hash_type=hash_type,
+        scoped_refs=scoped_refs,
+    )
+
+    if as_fn:
+        hasher.defs.clear()
+
+    return loader.cache_attempt(
+        hasher.defs,
+        hasher.hash,
+        hasher.stateful_refs,
+        hasher.cache_type,
+    )
+
+#+END_SRC
+** Function content_cache_attempt_from_base
+#+BEGIN_SRC python
+def content_cache_attempt_from_base(
+    previous_block: BlockHasher,
+    scope: dict[str, Any],
+    loader: Loader,
+    scoped_refs: Optional[set[Name]] = None,
+    required_refs: Optional[set[Name]] = None,
+    *,
+    as_fn: bool = False,
+    sensitive: bool = False,
+) -> Cache:
+    """Hash a code block with context from the same cell, and attempt a cache
+    lookup.
+
+    Args:
+      - previous_block: The block to base the new block on.
+      - scope: The scope of the new block.
+      - loader: The loader to use for cache operations.
+      - scoped_refs: A set of references that cannot be traced via
+        execution path, and must be accounted for via content hashing.
+      - as_fn: If True, then the block is treated as a function, and will not
+        cache definitions in scope.
+      - sensitive: If True, then the cache hash will to rehash references
+        resolved with path execution. This will invalidate the cache more
+        frequently.
+    """
+    if scoped_refs is None:
+        scoped_refs = set()
+
+    if required_refs is None:
+        required_refs = set()
+
+    scope = {
+        unmangle_local(k, previous_block.cell_id).name: v
+        for k, v in scope.items()
+    }
+
+    # Manually add back missing refs, which should now be in scope.
+    scoped_refs |= previous_block.missing
+    scoped_refs |= required_refs
+
+    # refine to values present
+    refs = scoped_refs & previous_block.visitor.refs
+    # Required refs are made explicit incase the examined block does not
+    # specify them e.g.
+    # @cache
+    # def foo(x):
+    #    return random.random()
+    # assert foo(0) != foo(1)
+    refs |= required_refs
+    # Assume all execution refs could be content refs
+    # but only if sensitive is set.
+    if sensitive:
+        refs |= previous_block.execution_refs
+    refs |= previous_block.content_refs
+    refs |= previous_block.context_refs
+
+    hasher = BlockHasher.from_parent(previous_block)
+    ctx = get_and_update_context_from_scope(scope, required_refs)
+    refs, _, stateful_refs = hasher.extract_ref_state_and_normalize_scope(
+        refs, scope, ctx
+    )
+
+    refs, content, tmp_stateful_refs = hasher.collect_for_content_hash(
+        refs, scope, ctx, scoped_refs, apply_hash=True
+    )
+    # If the execution block covers this variable, then that's OK
+    refs -= previous_block.execution_refs
+
+    stateful_refs |= tmp_stateful_refs
+
+    assert not refs, (
+        "Content addressed hash could not be resolved. "
+        "Try defining the cached block in a separate cell. "
+        f"The unresolved references are: {refs}. "
+    )
+
+    if as_fn:
+        hasher.defs.clear()
+
+    return loader.cache_attempt(
+        hasher.defs,
+        hasher.hash,
+        stateful_refs,
+        hasher.cache_type,
+    )
+
+#+END_SRC
+* save
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.save
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/save.py
+:END:
+** Assignment UNEXPECTED_FAILURE_BOILERPLATE
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import inspect
+import io
+import os
+import sys
+import traceback
+from sys import maxsize as MAXINT
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Optional,
+    Type,
+    Union,
+)
+
+from marimo._messaging.tracebacks import write_traceback
+from marimo._runtime.context import get_context
+from marimo._runtime.runtime import notebook_dir
+from marimo._runtime.state import State
+from marimo._save.ast import ExtractWithBlock, strip_function
+from marimo._save.cache import Cache, CacheException
+from marimo._save.hash import (
+    DEFAULT_HASH,
+    BlockHasher,
+    ShadowedRef,
+    cache_attempt_from_hash,
+    content_cache_attempt_from_base,
+)
+from marimo._save.loaders import Loader, MemoryLoader, PickleLoader
+from marimo._utils.variables import is_mangled_local, unmangle_local
+
+# Many assertions are for typing and should always pass. This message is a
+# catch all to motive users to report if something does fail.
+UNEXPECTED_FAILURE_BOILERPLATE = (
+    "— this is"
+    " unexpected and is likely a bug in marimo. "
+    "Please file an issue at "
+    "https://github.com/marimo-team/marimo/issues"
+)
+
+#+END_SRC
+** Class SkipWithBlock
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from types import FrameType, TracebackType
+
+    from _typeshed import TraceFunction
+    from typing_extensions import Self
+
+    from marimo._runtime.dataflow import DirectedGraph
+
+
+class SkipWithBlock(Exception):
+    """Special exception to get around executing the with block body."""
+
+#+END_SRC
+** Class _cache_base
+#+BEGIN_SRC python
+class _cache_base(object):
+    """Like functools.cache but notebook-aware. See `cache` docstring`"""
+
+    graph: DirectedGraph
+    cell_id: str
+    module: ast.Module
+    _args: list[str]
+    _loader: Optional[State[MemoryLoader]] = None
+    name: str
+    fn: Optional[Callable[..., Any]]
+
+    def __init__(
+        self,
+        _fn: Optional[Callable[..., Any]] = None,
+        *,
+        # -1 means unbounded cache
+        maxsize: int = -1,
+        pin_modules: bool = False,
+        hash_type: str = DEFAULT_HASH,
+        # frame_offset is the number of frames the __init__ call is nested
+        # with respect to definition of _fn
+        frame_offset: int = 0,
+    ) -> None:
+        self.max_size = maxsize
+        self.pin_modules = pin_modules
+        self.hash_type = hash_type
+        self._frame_offset = frame_offset
+        if _fn is None:
+            self.fn = None
+        else:
+            self._set_context(_fn)
+
+    @property
+    def hits(self) -> int:
+        if self._loader is None:
+            return 0
+        return self._loader().hits
+
+    def _set_context(self, fn: Callable[..., Any]) -> None:
+        assert callable(fn), "the provided function must be callable"
+        ctx = get_context()
+        assert ctx.execution_context is not None, (
+            "Could not resolve context for cache. "
+            "Either @cache is not called from a top level cell or "
+            f"{UNEXPECTED_FAILURE_BOILERPLATE}"
+        )
+
+        self.fn = fn
+        self._args = list(self.fn.__code__.co_varnames)
+        # Retrieving frame from the stack: frame is
+        #
+        # 0  _set_context ->
+        # 1  __call__ (or init) -->
+        # ...
+        # 2 + self._frame_offset: fn
+        #
+        # Note, that deeply nested frames may cause issues, however
+        # checking a single frame- should be good enough.
+        f_locals = inspect.stack()[2 + self._frame_offset][0].f_locals
+        self.scope = {**ctx.globals, **f_locals}
+        # In case scope shadows variables
+        #
+        # TODO(akshayka, dmadisetti): rewrite function args with an AST pass
+        # to make them unique, deterministically based on function body; this
+        # will allow for lifting the error when a ShadowedRef is also used
+        # as a regular ref.
+        for arg in self._args:
+            self.scope[arg] = ShadowedRef()
+
+        # Scoped refs are references particular to this block, that may not be
+        # defined out of the context of the block, or the cell.
+        # For instance, the args of the invoked function are restricted to the
+        # block.
+        cell_id = ctx.cell_id or ctx.execution_context.cell_id or ""
+        self.scoped_refs = set(self._args)
+        # # As are the "locals" not in globals
+        self.scoped_refs |= set(f_locals.keys()) - set(ctx.globals.keys())
+        # Defined in the cell, and currently available in scope
+        self.scoped_refs |= ctx.graph.cells[cell_id].defs & set(
+            ctx.globals.keys()
+        )
+        # The defined private variables of this cell, normalized
+        self.scoped_refs |= set(
+            unmangle_local(x).name
+            for x in ctx.globals.keys()
+            if is_mangled_local(x, cell_id)
+        )
+
+        graph = ctx.graph
+        cell_id = ctx.cell_id or ctx.execution_context.cell_id
+        module = strip_function(self.fn)
+
+        self.base_block = BlockHasher(
+            module=module,
+            graph=graph,
+            cell_id=cell_id,
+            scope=self.scope,
+            pin_modules=self.pin_modules,
+            hash_type=self.hash_type,
+            scoped_refs=self.scoped_refs,
+            apply_content_hash=False,
+        )
+
+        # Load global cache from state
+        name = self.fn.__name__
+        # Note, that if the function name shadows a global variable, the
+        # lifetime of the cache will be tied to the global variable.
+        # We can invalidate that by making an invalid namespace.
+        if ctx.globals != f_locals:
+            name = name + "*"
+
+        context = "cache"
+        self._loader = ctx.state_registry.lookup(name, context=context)
+        if self._loader is None:
+            loader = MemoryLoader(name, max_size=self.max_size)
+            self._loader = State(loader, _name=name, _context=context)
+        else:
+            self._loader().resize(self.max_size)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        # Capture the deferred call case
+        if self.fn is None:
+            if len(args) != 1:
+                raise TypeError(
+                    "cache() takes at most 1 argument (expecting function)"
+                )
+            self._set_context(args[0])
+            return self
+
+        # Capture the call case
+        arg_dict = {k: v for (k, v) in zip(self._args, args)}
+        scope = {**self.scope, **get_context().globals, **arg_dict, **kwargs}
+        assert self._loader is not None, UNEXPECTED_FAILURE_BOILERPLATE
+        attempt = content_cache_attempt_from_base(
+            self.base_block,
+            scope,
+            self._loader(),
+            scoped_refs=self.scoped_refs,
+            required_refs=set(self._args),
+            as_fn=True,
+        )
+
+        if attempt.hit:
+            attempt.restore(scope)
+            return attempt.meta["return"]
+        response = self.fn(*args, **kwargs)
+        # stateful variables may be global
+        scope = {k: v for k, v in scope.items() if k in attempt.stateful_refs}
+        attempt.update(scope, meta={"return": response})
+        self._loader().save_cache(attempt)
+        return response
+
+#+END_SRC
+** Function cache
+#+BEGIN_SRC python
+def cache(
+    _fn: Optional[Callable[..., Any]] = None,
+    *,
+    pin_modules: bool = False,
+) -> _cache_base:
+    """Cache the value of a function based on args and closed-over variables.
+
+    Decorating a function with `@mo.cache` will cache its value based on
+    the function's arguments, closed-over values, and the notebook code.
+
+    **Usage.**
+
+    ```python
+    import marimo as mo
+
+
+    @mo.cache
+    def fib(n):
+        if n <= 1:
+            return n
+        return fib(n - 1) + fib(n - 2)
+    ```
+
+    `mo.cache` is similar to `functools.cache`, but with three key benefits:
+
+    1. `mo.cache` persists its cache even if the cell defining the
+        cached function is re-run, as long as the code defining the function
+        (excluding comments and formatting) has not changed.
+    2. `mo.cache` keys on closed-over values in addition to function arguments,
+        preventing accumulation of hidden state associated with
+        `functools.cache`.
+    3. `mo.cache` does not require its arguments to be
+        hashable (only pickleable), meaning it can work with lists, sets, NumPy
+        arrays, PyTorch tensors, and more.
+
+    `mo.cache` obtains these benefits at the cost of slightly higher overhead
+    than `functools.cache`, so it is best used for expensive functions.
+
+    Like `functools.cache`, `mo.cache` is thread-safe.
+
+    The cache has an unlimited maximum size. To limit the cache size, use
+    `@mo.lru_cache`. `mo.cache` is slightly faster than `mo.lru_cache`, but in
+    most applications the difference is negligible.
+
+    **Args**:
+
+    - `pin_modules`: if True, the cache will be invalidated if module versions
+      differ.
+    """
+    return _cache_base(
+        _fn,
+        maxsize=-1,
+        pin_modules=pin_modules,
+        frame_offset=1,
+    )
+
+#+END_SRC
+** Function lru_cache
+#+BEGIN_SRC python
+def lru_cache(
+    _fn: Optional[Callable[..., Any]] = None,
+    *,
+    maxsize: int = 128,
+    pin_modules: bool = False,
+) -> _cache_base:
+    """Decorator for LRU caching the return value of a function.
+
+    `mo.lru_cache` is a version of `mo.cache` with a bounded cache size. As an
+    LRU (Least Recently Used) cache, only the last used `maxsize` values are
+    retained, with the oldest values being discarded. For more information,
+    see the documentation of `mo.cache`.
+
+    **Usage.**
+
+    ```python
+    import marimo as mo
+
+
+    @mo.lru_cache
+    def factorial(n):
+        return n * factorial(n - 1) if n else 1
+    ```
+
+    **Args**:
+
+    - `maxsize`: the maximum number of entries in the cache; defaults to 128.
+      Setting to -1 disables cache limits.
+    - `pin_modules`: if True, the cache will be invalidated if module versions
+      differ.
+    """
+
+    return _cache_base(
+        _fn,
+        maxsize=maxsize,
+        pin_modules=pin_modules,
+        frame_offset=1,
+    )
+
+#+END_SRC
+** Class persistent_cache
+#+BEGIN_SRC python
+class persistent_cache(object):
+    """Save variables to disk and restore them thereafter.
+
+    The `mo.persistent_cache` context manager lets you delimit a block of code
+    in which variables will be cached to disk when they are first computed. On
+    subsequent runs of the cell, if marimo determines that this block of code
+    hasn't changed and neither has its ancestors, it will restore the variables
+    from disk instead of re-computing them, skipping execution of the block
+    entirely.
+
+    Restoration happens even across notebook runs, meaning you can use
+    `mo.persistent_cache` to make notebooks start *instantly*, with variables
+    that would otherwise be expensive to compute already materialized in
+    memory.
+
+    **Usage.**
+
+    ```python
+    with persistent_cache(name="my_cache"):
+        variable = expensive_function()  # This will be cached to disk.
+        print("hello, cache")  # this will be skipped on cache hits
+    ```
+
+    In this example, `variable` will be cached the first time the block
+    is executed, and restored on subsequent runs of the block. If cache
+    conditions are hit, the contents of `with` block will be skipped on
+    execution. This means that side-effects such as writing to stdout and
+    stderr will be skipped on cache hits.
+
+    For function-level memoization, use `@mo.cache` or `@mo.lru_cache`.
+
+    Note that `mo.state` and `UIElement` changes will also trigger cache
+    invalidation, and be accordingly updated.
+
+    **Warning.** Since context abuses sys frame trace, this may conflict with
+    debugging tools or libraries that also use `sys.settrace`.
+
+    **Args**:
+
+    - `name`: the name of the cache, used to set saving path- to manually
+      invalidate the cache, change the name.
+    - `save_path`: the folder in which to save the cache, defaults to
+      "__marimo__/cache" in the directory of the notebook file
+    - `pin_modules`: if True, the cache will be invalidated if module versions
+      differ between runs, defaults to False.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        save_path: str | None = None,
+        pin_modules: bool = False,
+        _loader: Optional[Loader] = None,
+    ) -> None:
+        # For an implementation sibling regarding the block skipping, see
+        # `withhacks` in pypi.
+        self.name = name
+        if save_path is None and (root := notebook_dir()) is not None:
+            save_path = str(root / "__marimo__" / "cache")
+        elif save_path is None:
+            # This can happen if the notebook file is unnamed.
+            save_path = os.path.join("__marimo__", "cache")
+
+        if _loader:
+            self._loader = _loader
+        else:
+            self._loader = PickleLoader(name, save_path)
+
+        self._skipped = True
+        self._cache: Optional[Cache] = None
+        self._entered_trace = False
+        self._old_trace: Optional[TraceFunction] = None
+        self._frame: Optional[FrameType] = None
+        self._body_start: int = MAXINT
+        # TODO: Consider having a user level setting.
+        self.pin_modules = pin_modules
+
+    def __enter__(self) -> Self:
+        sys.settrace(lambda *_args, **_keys: None)
+        frame = sys._getframe(1)
+        # Hold on to the previous trace.
+        self._old_trace = frame.f_trace
+        # Setting the frametrace, will cause the function to be run on _every_
+        # single context call until the trace is cleared.
+        frame.f_trace = self._trace
+        return self
+
+    def _trace(
+        self, with_frame: FrameType, _event: str, _arg: Any
+    ) -> Union[TraceFunction, None]:
+        # General flow is as follows:
+        #   1) Follow the stack trace backwards to the first instance of a
+        # "<module>" function call, which corresponds to a cell level block.
+        #   2) Run static analysis to determine whether the call meets our
+        # criteria. The procedure is a little brittle as such, certain contexts
+        # are not allow (e.g. called within a function or a loop).
+        #  3) Hash the execution and lookup the cache, and return!
+        #  otherwise) Set _skipped such that the block continues to execute.
+
+        self._entered_trace = True
+
+        if not self._skipped:
+            return self._old_trace
+
+        # This is possible if `With` spans multiple lines.
+        # This behavior arguably a python bug.
+        # Note the behavior does subtly change in 3.14, but will still be
+        # captured by this check.
+        if self._cache and self._cache.hit:
+            if with_frame.f_lineno >= self._body_start:
+                raise SkipWithBlock()
+
+        stack = traceback.extract_stack()
+
+        # This only executes on the first line of code in the block. If the
+        # cache is hit, the block terminates early with a SkipWithBlock
+        # exception, if the block is not hit, self._skipped is set to False,
+        # causing this function to terminate before reaching this block.
+        self._frame = with_frame
+        for i, frame in enumerate(stack[::-1]):
+            _filename, lineno, function_name, _code = frame
+            if function_name == "<module>":
+                ctx = get_context()
+                assert ctx.execution_context is not None, (
+                    "Could not resolve context for cache.",
+                    f"{UNEXPECTED_FAILURE_BOILERPLATE}",
+                )
+                graph = ctx.graph
+                cell_id = ctx.cell_id or ctx.execution_context.cell_id
+                pre_module, save_module = ExtractWithBlock(lineno - 1).visit(
+                    ast.parse(graph.cells[cell_id].code).body  # type: ignore[arg-type]
+                )
+
+                self._cache = cache_attempt_from_hash(
+                    save_module,
+                    graph,
+                    cell_id,
+                    {**globals(), **with_frame.f_locals},
+                    loader=self._loader,
+                    context=pre_module,
+                    pin_modules=self.pin_modules,
+                )
+
+                self.cache_type = self._cache
+                # Raising on the first valid line, prevents a discrepancy where
+                # whitespace in `With`, changes behavior.
+                self._body_start = save_module.body[0].lineno
+                if self._cache and self._cache.hit:
+                    if lineno >= self._body_start:
+                        raise SkipWithBlock()
+                    return self._old_trace
+                self._skipped = False
+                return self._old_trace
+            elif i > 1:
+                raise CacheException(
+                    "`persistent_cache` must be invoked from cell level "
+                    "(cannot be in a function or class)"
+                )
+        raise CacheException(
+            (
+                "`persistent_cache` could not resolve block"
+                f"{UNEXPECTED_FAILURE_BOILERPLATE}"
+            )
+        )
+
+    def __exit__(
+        self,
+        exception: Optional[Type[BaseException]],
+        instance: Optional[BaseException],
+        _tracebacktype: Optional[TracebackType],
+    ) -> bool:
+        sys.settrace(self._old_trace)  # Clear to previous set trace.
+        if not self._entered_trace:
+            raise CacheException(
+                ("Unexpected block format" f"{UNEXPECTED_FAILURE_BOILERPLATE}")
+            )
+
+        # Backfill the loaded values into global scope.
+        if self._cache and self._cache.hit:
+            assert self._frame is not None, UNEXPECTED_FAILURE_BOILERPLATE
+            self._cache.restore(self._frame.f_locals)
+            # Return true to suppress the SkipWithBlock exception.
+            return True
+
+        # NB: exception is a type.
+        if exception:
+            assert not isinstance(instance, SkipWithBlock), (
+                "Cache was not correctly set"
+                f"{UNEXPECTED_FAILURE_BOILERPLATE}"
+            )
+            if isinstance(instance, BaseException):
+                raise instance from CacheException("Failure during save.")
+            raise exception
+
+        # Fill the cache object and save.
+        assert self._cache is not None, UNEXPECTED_FAILURE_BOILERPLATE
+        assert self._frame is not None, UNEXPECTED_FAILURE_BOILERPLATE
+        self._cache.update(self._frame.f_locals)
+
+        try:
+            self._loader.save_cache(self._cache)
+        except Exception as e:
+            sys.stderr.write(
+                "An exception was raised when attempting to cache this code "
+                "block with the following message:\n"
+                f"{str(e)}\n"
+                "NOTE: The cell has run, but cache has not been saved.\n"
+            )
+            tmpio = io.StringIO()
+            traceback.print_exc(file=tmpio)
+            tmpio.seek(0)
+            write_traceback(tmpio.read())
+        return False
+
+#+END_SRC
+* loaders
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.loaders
+:END:
+** __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.loaders.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/loaders/__init__.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from marimo._save.loaders.loader import Loader
+from marimo._save.loaders.memory import MemoryLoader
+from marimo._save.loaders.pickle import PickleLoader
+
+#+END_SRC
+*** Assignment __all__ = ["Loader", "MemoryLoader", "PickleLoader"]
+#+BEGIN_SRC python
+__all__ = ["Loader", "MemoryLoader", "PickleLoader"]
+
+#+END_SRC
+** loader
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.loaders.loader
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/loaders/loader.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from marimo._save.cache import CACHE_PREFIX, Cache, CacheType
+
+#+END_SRC
+*** Assignment INCONSISTENT_CACHE_BOILER_PLATE
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from marimo._ast.visitor import Name
+
+INCONSISTENT_CACHE_BOILER_PLATE = (
+    "The cache state does not match "
+    "expectations, this can be due to file "
+    "corruption or an incompatible marimo "
+    "version. Alternatively, this may be a bug"
+    " in marimo. Please file an issue at "
+    "github.com/marimo-team/marimo/issues"
+)
+
+#+END_SRC
+*** Class Loader
+#+BEGIN_SRC python
+class Loader(ABC):
+    """Loaders are responsible for saving and loading persistent caches.
+
+    Loaders are provided a name, a save path and a cache key or "hash", which
+    should be deterministically determined given the notebook context.
+
+    In the future, they may be specialized for different types of data (such as
+    numpy or pandas dataframes), or remote storage (such as S3 or marimo
+    cloud).
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def build_path(self, hashed_context: str, cache_type: CacheType) -> Path:
+        prefix = CACHE_PREFIX.get(cache_type, "U_")
+        return Path(f"{prefix}{hashed_context}")
+
+    def cache_attempt(
+        self,
+        defs: set[Name],
+        hashed_context: str,
+        stateful_refs: set[Name],
+        cache_type: CacheType,
+    ) -> Cache:
+        if not self.cache_hit(hashed_context, cache_type):
+            return Cache(
+                {d: None for d in defs},
+                hashed_context,
+                stateful_refs,
+                cache_type,
+                False,
+                {},
+            )
+        loaded = self.load_cache(hashed_context, cache_type)
+        # TODO: Consider more robust verification
+        assert loaded.hash == hashed_context, INCONSISTENT_CACHE_BOILER_PLATE
+        assert set(defs | stateful_refs) == set(
+            loaded.defs
+        ), INCONSISTENT_CACHE_BOILER_PLATE
+        return Cache(
+            loaded.defs,
+            hashed_context,
+            stateful_refs,
+            cache_type,
+            True,
+            loaded.meta,
+        )
+
+    @abstractmethod
+    def cache_hit(self, hashed_context: str, cache_type: CacheType) -> bool:
+        """Check if cache has been hit given a result hash.
+
+        Args:
+            hashed_context: The hash of the result context
+            cache_type: The type of cache to check for
+
+        Returns:
+            bool: Whether the cache has been hit
+        """
+
+    @abstractmethod
+    def load_cache(self, hashed_context: str, cache_type: CacheType) -> Cache:
+        """Load Cache"""
+
+    @abstractmethod
+    def save_cache(self, cache: Cache) -> None:
+        """Save Cache"""
+
+#+END_SRC
+** memory
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.loaders.memory
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/loaders/memory.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import threading
+from collections import OrderedDict
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
+
+from marimo._save.cache import Cache, CacheType
+from marimo._save.loaders.loader import INCONSISTENT_CACHE_BOILER_PLATE, Loader
+
+#+END_SRC
+*** Assignment T = TypeVar("T")
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+T = TypeVar("T")
+
+#+END_SRC
+*** Class MemoryLoader
+#+BEGIN_SRC python
+class MemoryLoader(Loader):
+    """In memory loader for saved objects."""
+
+    def __init__(
+        self,
+        *args: Any,
+        max_size: int = 128,
+        cache: Optional[OrderedDict[Path, Cache]] = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+
+        self._cache: Union[OrderedDict[Path, Cache], dict[Path, Cache]]
+        self.is_lru = max_size > 0
+
+        # Normal python dicts are atomic, ordered dictionaries are not.
+        # As such, default to normal dict if not LRU.
+        self._cache = {}
+        # ordered dict is protected by a lock
+        self._cache_lock: threading.Lock | None = None
+        if self.is_lru:
+            self._cache = OrderedDict()
+            self._cache_lock = threading.Lock()
+        self.max_size = max_size
+        self.hits = 0
+        if cache is not None:
+            self._maybe_lock(lambda: self._cache.update(cache))
+
+    def _maybe_lock(self, fn: Callable[..., T]) -> T:
+        if self._cache_lock is not None:
+            with self._cache_lock:
+                return fn()
+        else:
+            return fn()
+
+    def cache_hit(self, hashed_context: str, cache_type: CacheType) -> bool:
+        key = self.build_path(hashed_context, cache_type)
+        return self._maybe_lock(lambda: key in self._cache)
+
+    def load_cache(self, hashed_context: str, cache_type: CacheType) -> Cache:
+        assert self.cache_hit(
+            hashed_context, cache_type
+        ), INCONSISTENT_CACHE_BOILER_PLATE
+        self.hits += 1
+        key = self.build_path(hashed_context, cache_type)
+        if self.is_lru:
+            assert isinstance(self._cache, OrderedDict)
+            assert self._cache_lock is not None
+            with self._cache_lock:
+                self._cache.move_to_end(key)
+        return self._cache[key]
+
+    def save_cache(self, cache: Cache) -> None:
+        key = self.build_path(cache.hash, cache.cache_type)
+        # LRU
+        if self.is_lru:
+            assert isinstance(self._cache, OrderedDict)
+            assert self._cache_lock is not None
+            with self._cache_lock:
+                self._cache[key] = cache
+                self._cache.move_to_end(key)
+                if len(self._cache) > self.max_size:
+                    self._cache.popitem(last=False)
+        self._cache[key] = cache
+
+    def resize(self, max_size: int) -> None:
+        if not self.is_lru:
+            self.is_lru = max_size > 0
+            if self.is_lru:
+                self._cache = OrderedDict(self._cache.items())
+                self._cache_lock = threading.Lock()
+            self.max_size = max_size
+            return
+        assert isinstance(self._cache, OrderedDict)
+        assert self._cache_lock is not None
+        with self._cache_lock:
+            self.is_lru = max_size > 0
+            if not self.is_lru:
+                self._cache = dict(self._cache.items())
+                self.max_size = max_size
+                return
+            while len(self._cache) > max_size:
+                self._cache.popitem(last=False)
+        self.max_size = max_size
+
+#+END_SRC
+** pickle
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._save.loaders.pickle
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_save/loaders/pickle.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import os
+import pickle
+from pathlib import Path
+
+from marimo._save.cache import CACHE_PREFIX, Cache, CacheType
+from marimo._save.loaders.loader import INCONSISTENT_CACHE_BOILER_PLATE, Loader
+
+#+END_SRC
+*** Class PickleLoader
+#+BEGIN_SRC python
+class PickleLoader(Loader):
+    """General loader for serializable objects."""
+
+    def __init__(self, name: str, save_path: str) -> None:
+        super().__init__(name)
+        self.name = name
+        self.save_path = Path(save_path) / name
+        self.save_path.mkdir(parents=True, exist_ok=True)
+
+    def build_path(self, hashed_context: str, cache_type: CacheType) -> Path:
+        prefix = CACHE_PREFIX.get(cache_type, "U_")
+        return self.save_path / f"{prefix}{hashed_context}.pickle"
+
+    def cache_hit(self, hashed_context: str, cache_type: CacheType) -> bool:
+        path = self.build_path(hashed_context, cache_type)
+        return os.path.exists(path) and os.path.getsize(path) > 0
+
+    def load_cache(self, hashed_context: str, cache_type: CacheType) -> Cache:
+        assert self.cache_hit(
+            hashed_context, cache_type
+        ), INCONSISTENT_CACHE_BOILER_PLATE
+        with open(self.build_path(hashed_context, cache_type), "rb") as handle:
+            cache = pickle.load(handle)
+            assert isinstance(cache, Cache), (
+                "Excepted cache object, got" f"{type(cache)} ",
+                INCONSISTENT_CACHE_BOILER_PLATE,
+            )
+            return cache
+
+    def save_cache(self, cache: Cache) -> None:
+        with open(self.build_path(cache.hash, cache.cache_type), "wb") as f:
+            pickle.dump(cache, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+#+END_SRC

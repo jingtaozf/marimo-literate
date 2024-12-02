@@ -1,0 +1,4464 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._tutorials
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/__init__.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import inspect
+import os
+import tempfile
+from typing import get_args, Literal, Union
+
+from marimo._utils.marimo_path import MarimoPath
+
+#+END_SRC
+** Assignment PythonTutorial
+#+BEGIN_SRC python
+PythonTutorial = Literal[
+    "intro",
+    "dataflow",
+    "ui",
+    "markdown",
+    "plots",
+    "sql",
+    "layout",
+    "fileformat",
+    "for-jupyter-users",
+]
+
+#+END_SRC
+** Assignment MarkdownTutorial = Literal["markdown-format",]
+#+BEGIN_SRC python
+MarkdownTutorial = Literal["markdown-format",]
+
+#+END_SRC
+** Assignment Tutorial = Union[PythonTutorial, MarkdownTutorial]
+#+BEGIN_SRC python
+Tutorial = Union[PythonTutorial, MarkdownTutorial]
+
+#+END_SRC
+** Assignment tutorial_order
+#+BEGIN_SRC python
+tutorial_order: list[Tutorial] = [
+    "intro",
+    "dataflow",
+    "ui",
+    "markdown",
+    "plots",
+    "sql",
+    "layout",
+    "fileformat",
+    "markdown-format",
+    "for-jupyter-users",
+]
+
+#+END_SRC
+** Function get_tutorial_source
+#+BEGIN_SRC python
+assert set(tutorial_order) == set(get_args(PythonTutorial)) | set(get_args(MarkdownTutorial)), "Tutorial missing"
+
+
+def get_tutorial_source(name: Tutorial) -> str:
+    if name in get_args(PythonTutorial):
+        name = name.replace("-", "_")
+        # from marimo._tutorials import <name>
+        tutorial = getattr(__import__("marimo._tutorials", fromlist=[name]),
+                           name)
+        return inspect.getsource(tutorial)
+    assert name in get_args(MarkdownTutorial)
+    name = name.replace("-", "_")
+    file = os.path.join(os.path.dirname(__file__), f"{name}.md")
+    with open(file, "r", encoding="utf8") as f:
+        return f.read()
+
+#+END_SRC
+** Function create_temp_tutorial_file
+#+BEGIN_SRC python
+def create_temp_tutorial_file(name: Tutorial, temp_dir: tempfile.TemporaryDirectory[str]) -> MarimoPath:
+    source = get_tutorial_source(name)
+    extension = "py" if name in get_args(PythonTutorial) else "md"
+    fname = os.path.join(temp_dir.name, f"{name}.{extension}")
+    path = MarimoPath(fname)
+    path.write_text(source)
+    return path
+
+#+END_SRC
+* dataflow
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.dataflow
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/dataflow.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.6.0"
+#+BEGIN_SRC python
+__generated_with = "0.6.0"
+
+#+END_SRC
+** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        # How marimo notebooks run
+
+        Reactive execution is based on a single rule: when a cell is run, all other
+        cells that reference any of the global variables it defines run
+        automatically.
+
+        To provide reactive execution, marimo creates a dataflow graph out of your
+        cells.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        **Tip: disabling automatic execution.**
+
+        marimo lets you disable automatic execution: just go into the notebook settings
+        and set
+
+        "Runtime > On Cell Change" to "lazy".
+
+        When the runtime is lazy, after running a cell, marimo marks its
+        descendants as stale instead of automatically running them. The lazy
+        runtime puts you in control over when cells are run, while still giving
+        guarantees about the notebook state.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## References and definitions
+
+        A marimo notebook is a directed acyclic graph in which nodes represent 
+        cells and edges represent data dependencies. marimo creates this graph by
+        analyzing each cell (without running it) to determine its
+
+        - references ("refs*), the global variables it reads but doesn't define;
+        - definitions ("defs"), the global variables it defines.
+
+        There is an edge from one cell to another if the latter cell references any
+        global variables defined by the former cell.
+
+        The rule for reactive execution can be restated in terms of the graph: when
+        a cell is run, its descendants are run automatically.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### Example
+
+        The next four cells plot a sine wave with a given period and amplitude.
+        Each cell is labeled with its refs and defs.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: inspecting refs and defs": f"""
+            Use `mo.refs()` and `mo.defs()` to inspect the refs and defs of any
+            given cell. This can help with debugging complex notebooks.
+
+            For example, here are the refs and defs of this cell:
+
+            {mo.as_html({"refs": mo.refs(), "defs": mo.defs()})}
+            """
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(amplitude, mo, period, plot_wave):
+    mo.md(
+        f"""
+        {mo.as_html(plot_wave(amplitude, period))}
+
+        - `refs: {mo.refs()}`
+        - `defs: {mo.defs()}`
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    period = 2 * 3.14159
+
+    mo.md(
+        f"""
+        - `refs: {mo.refs()}`
+        - `defs: {mo.defs()}`
+        """
+    )
+    return (period,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    amplitude = 1
+
+    mo.md(
+        f"""
+        - `refs: {mo.refs()}`
+        - `defs: {mo.defs()}`
+        """
+    )
+    return (amplitude,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(matplotlib_installed, mo, np, numpy_installed, plt):
+    def plot_wave(amplitude, period):
+        if not numpy_installed:
+            return mo.md(
+                "> Oops! It looks like you don't have `numpy` installed."
+            )
+        if not matplotlib_installed:
+            return mo.md(
+                "> Oops! It looks like you don't have `matplotlib` installed."
+            )
+        x = np.linspace(0, 2 * np.pi, 256)
+        plt.plot(x, amplitude * np.sin(2 * np.pi / period * x))
+        plt.xlim(0, 2 * np.pi)
+        plt.ylim(-2, 2)
+        plt.xticks(
+            [0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi],
+            [0, r"$\pi/2$", r"$\pi$", r"$3\pi/2$", r"$2\pi$"],
+        )
+        plt.yticks([-2, -1, 0, 1, 2])
+        plt.gcf().set_size_inches(6.5, 2.4)
+        return plt.gca()
+
+    mo.md(
+        f"""
+        - `refs: {mo.refs()}`
+        - `defs: {mo.defs()}`
+        """
+    )
+    return (plot_wave,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        🌊 **Try it!** In the above cells, try changing the value `period` or 
+        `ampltitude`, then click the run button ( ▷ ) to register your changes. 
+        See what happens to the sine wave.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        Here is the dataflow graph for the cells that make the sine wave plot, plus
+        the cells that import libraries. Each cell is labeled with its defs. 
+
+        ```
+                           +------+               +-----------+
+               +-----------| {mo} |-----------+   | {np, plt} |
+               |           +---+--+           |   +----+------+
+               |               |              |        |
+               |               |              |        |
+               v               v              v        v
+          +----------+   +-------------+   +--+----------+
+          | {period} |   | {amplitude} |   | {plot_wave} |
+          +---+------+   +-----+-------+   +------+------+
+              |                |                  |
+              |                v                  |
+              |              +----+               |
+              +------------> | {} | <-------------+
+                             +----+
+        ```
+
+        The last cell, which doesn't define anything, produces the plot.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Dataflow programming
+
+        marimo's runtime rule has some important consequences that may seem 
+        surprising if you are not used to dataflow programming. We list these
+        below.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### Execution order is not cell order
+
+        The order in which cells are executed is determined entirely by the
+        dataflow graph. This makes marimo notebooks more reproducible than
+        traditional notebooks. It also lets you place boilerplate, like
+        imports or long markdown strings, at the bottom of the editor.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### Global variable names must be unique
+
+        Every global variable can be defined by only one cell. Without this 
+        constraint, there would be no way for marimo to know which order to 
+        execute cells in.
+
+        If you violate this constraint, marimo provides a helpful
+        error message, like below:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    planet = "Mars"
+    planet
+    return (planet,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    planet = "Earth"
+    planet
+    return (planet,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        **🌊 Try it!** In the previous cell, change the name `planet` to `home`, 
+        then run the cell.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        Because defs must be unique, global variables cannot be modified with
+        operators like `+=` or `-=` in cells other than the one that created
+        them; these operators count as redefinitions of a name.
+
+        **🌊 Try it!** Get rid of the following errors by merging the next two 
+        cells into a single cell.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    count = 0
+    return (count,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    count += 1
+    return (count,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### Underscore-prefixed variables are local to cells
+
+        Global variables prefixed with an underscore are "private" to the cells 
+        that define them. This means that multiple cells can define the same 
+        underscore-prefixed name, and one cell's private variables won't be
+        made available to other cells.
+
+        **Example**.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    _private_variable, _ = 1, 2
+    _private_variable, _
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    _private_variable, _ = 3, 4
+    _private_variable, _
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    # `_private_variable` and `_` are not defined in this cell
+    _private_variable, _
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### Deleting a cell deletes its variables
+
+        Deleting a cell deletes its global variables and 
+        then runs all cells that reference them. This prevents severe bugs that 
+        can arise when state has been deleted from the editor but not from the 
+        program memory.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    to_be_deleted = "variable still exists"
+
+    mo.md(
+        """
+        🌊 **Try it!**
+
+        Delete this cell by clicking the trash bin icon.
+        """
+    )
+    return (to_be_deleted,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(to_be_deleted):
+    to_be_deleted
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### Cycles are not allowed
+
+        Cycles among cells are not allowed. For example:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(two):
+    one = two - 1
+    return (one,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(one):
+    two = one + 1
+    return (two,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### marimo doesn't track attributes
+
+        marimo only tracks global variables. Writing object attributes does not 
+        trigger reactive execution.
+
+        **🌊 Example**. Change the value of `state.number` in the next cell, then
+        run the cell. Notice how the subsequent cell isn't updated.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(state):
+    state.number = 1
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(state):
+    state.number
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    class namespace:
+        pass
+
+    state = namespace()
+    state.number = 0
+    return namespace, state
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Why not track attributes?": """
+            marimo can't reliably trace attributes 
+            to cells that define them. For example, attributes are routinely 
+            created or modified by library code.
+            """
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### marimo doesn't track mutations
+
+        In Python, it's impossible to know whether code will 
+        mutate an object without running it. So: mutations (such as
+        appending to a list) will not trigger reactive execution.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip (advanced): mutable state": (
+                """
+            You can use the fact that marimo does not track attributes or 
+            mutations to implement mutable state in marimo. An example of
+            this is shown in the `ui` tutorial.
+            """
+            )
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Best practices
+
+        The constraints marimo puts on your notebooks are all natural consequences
+        of the fact that marimo programs are directed acyclic graphs. As long as 
+        you keep this fact in mind, you'll quickly adapt to the marimo way of
+        writing notebooks.
+
+        Ultimately, these constraints will enable you to create powerful notebooks
+        and apps, and they'll encourage you to write clean, reproducible code.
+
+        Follow these tips to stay on the marimo way:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, tips):
+    mo.accordion(tips)
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        """
+        ## What's next?
+
+        Check out the tutorial on interactivity for a tour of UI elements:
+
+        ```
+        marimo tutorial ui
+        ```
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    matplotlib_installed = False
+    numpy_installed = False
+
+    try:
+        import matplotlib.pyplot as plt
+
+        matplotlib_installed = True
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        import numpy as np
+
+        numpy_installed = True
+    except ModuleNotFoundError:
+        pass
+    return matplotlib_installed, np, numpy_installed, plt
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    tips = {
+        "Use global variables sparingly": (
+            """
+            Keep the number of global variables in your program small to avoid
+            name collisions across cells. Keep the number of global variables 
+            defined by any one cell small to make sure that the units of
+            reactive execution are small. 
+            """
+        ),
+        "Use descriptive names": (
+            """
+            Use descriptive variable names, especially for global variables.
+            This will help you minimize name clashes, and will also result in
+            better code.
+            """
+        ),
+        "Use functions": (
+            """
+            Encapsulate logic into functions to avoid polluting the global
+            namespace with temporary or intermediate variables.
+            """
+        ),
+        "Minimize mutations": (
+            """
+            We saw earlier that marimo cannot track object mutations. So try
+            to only mutate an object in the cell that creates it, or create
+            new objects instead of mutating existing ones.
+
+            For example, don't do this:
+
+            ```python3
+            # a cell
+            numbers = [1, 2, 3]
+            ```
+
+            ```python3
+            # another cell
+            numbers.append(4)
+            ```
+
+            Instead, prefer
+
+            ```python3
+            # a cell
+            numbers = [1, 2, 3]
+            numbers.append(4)
+            ```
+
+            or
+
+            ```python3
+            # a cell
+            numbers = [1, 2, 3]
+            ```
+
+            ```python3
+            # another cell
+            more_numbers = numbers + [4]
+            ```
+            """
+        ),
+        "Write idempotent cells": (
+            """  
+            Write cells whose outputs and behavior are the same when given
+            the same inputs (refs); such cells are called _idempotent_. This will
+            help you avoid bugs, and let you cache expensive intermediate
+            computations (see the next tip).
+            """
+        ),
+        "Cache intermediate computations with `@mo.cache`": (
+            """
+            Use `mo.cache` to cache the return value of expensive functions.
+            You can do this if you abstract complex logic into idempotent
+            functions, following earlier tips.
+
+            For example:
+
+            ```python3
+            import marimo as mo
+
+            @mo.cache
+            def compute_prediction(problem_parameters):
+              ...
+            ```
+
+            Whenever `compute_predictions` is called with a value of
+            `problem_parameters` it has not seen, it will compute the predictions
+            and store them in a cache. The next time it is called with the same
+            parameters, instead of recomputing the predictions, it will just 
+            fetch the previously computed ones from the cache.
+
+            If you are familiar with `functools.cache`, `mo.cache` is
+            similar but more robust, with the cache persisting even
+            if the cell defining the function is re-run.
+            """
+        ),
+    }
+    return (tips,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    return (mo,)
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+* fileformat
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.fileformat
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/fileformat.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.1.69"
+#+BEGIN_SRC python
+__generated_with = "0.1.69"
+
+#+END_SRC
+** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(intro, mo):
+    mo.md(intro)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: hide this tutorial's code": (
+            """
+            Click the app window icon in the bottom-right to hide this app's code,
+            or use the "fold code" shortcut to fold all code cells.
+            """
+            )
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(example_program, mo):
+    mo.md(example_program)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(file_contents, mo):
+    mo.md(file_contents)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Properties
+
+        marimo's file format was designed to be easy to read and easy 
+        to work with, while also serving the needs of the marimo library. You can 
+        even edit the generated file's cells directly, using your favorite text 
+        editor, and format the file with your favorite code formatter.
+
+        We explain some properties of marimo's file format below.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo, properties):
+    mo.accordion(properties)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    intro = """
+    # File Format
+
+    marimo apps are stored as pure Python files.
+
+    These files are:
+
+    - easily versioned with git, producing small diffs
+    - legible for both humans and machines
+    - formattable using your tool of choice
+    - usable as Python  scripts, with UI  elements taking their default values
+    """
+    return intro,
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    file_contents = f"""
+        For the above example, marimo would generate the following file 
+        contents:
+
+        ```python3
+        import marimo
+
+        __generated_with = "{mo.__version__}"
+        app = marimo.App()
+
+        @app.cell
+        def __(text):
+            print(text.value)
+            return
+
+        @app.cell
+        def __(mo):
+            text = mo.ui.text(value="Hello, World!")
+            text
+            return text,
+
+        @app.cell
+        def __():
+            import marimo as mo
+            return mo,
+
+        if __name__ == "__main__":
+            app.run()
+        ```
+
+        As you can see, this is _pure Python_. This is part of the reason why
+        marimo's generated files are **git-friendly**: small changes made using 
+        the marimo editor result in small changes to the file that marimo 
+        generates.
+    """
+    return file_contents,
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    example_program = """
+    ## Example
+
+    Consider a marimo notebook with the following three cells.
+
+    First cell:
+    ```python3
+    print(text.value)
+    ```
+
+    Second cell:
+    ```python3
+    text = mo.ui.text(value="Hello, World!")
+    text
+    ```
+
+    Third cell:
+    ```python3
+    import marimo as mo
+    ```
+    """
+    return example_program,
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    properties = {
+        "Cells are functions": """
+        In the `dataflow` tutorial, we saw that cells are like functions mapping 
+        their refs (the global  variables they uses but don't define) to their 
+        defs (the global variables they define). The generated code makes this 
+        analogy explicit.
+
+        In the generated code, there is a function for each cell. The arguments 
+        of  the function are the cell's refs , and its returned variables are 
+        its defs.
+
+        For example, the code
+
+        ```python3
+        @app.cell
+        def __(mo):
+            text = mo.ui.text(value="Hello, World!")
+            text
+            return text,
+        ```
+
+        says that the cell takes as input a variable called `mo`, and it creates
+        a global variable called `text`.
+
+        In contrast, the code
+
+        ```python3
+        @app.cell
+        def __():
+            import marimo as mo
+            return mo,
+        ```
+
+        says that the cell doesn't depend on any other cells (its argument list 
+        is  empty), though it does create the variable `mo` which the previous 
+        cell requires as input.
+        """,
+        "Cells are stored in presentation order": """
+        Cells are stored in the order that they are arranged in the marimo 
+        editor. So if you want to rearrange
+        your cells using your favorite text editor, just rearrange the
+        order that they're defined in the file.
+        """,
+        "Text formatting is preserved": """
+        marimo guarantees that however your source code was
+        formatted in the marimo editor is exactly how it will be stored in
+        the generated code. For example, whitespace, line breaks, and so on are
+        all preserved exactly. This means that you can touch up formatting in
+        your text editor, either manually or using automated formatters like 
+        Ruff, and be confident that your changes will be preserved.
+        """,
+        "Cell functions can have names": """
+        If you want to, you can replace the default names for cell functions 
+        with meaningful ones.
+
+        For example, change
+
+        ```python3
+        @app.cell
+        def __(text):
+            print(text.value)
+            return
+        ```
+
+        to 
+
+        ```python3
+        @app.cell
+        def echo(text):
+            print(text.value)
+            return
+        ```
+
+        This can make the generated code more readable.
+        """,
+        "No magical tokens": """
+        marimo's generated code is pure Python; no magical syntax.
+        """,
+        "Helpful error messages": """
+        If when editing a cell, you forget to include all a cell's refs in its
+        argument list, or all its defs in its returns, marimo will raise a 
+        helpful error message the next time you try to open it in the marimo 
+        editor. So don't worry that you'll botch a cell's signature when editing 
+        it.
+        """,
+        "The `app` object": """
+        At the top of the generated code, a variable named `app` is created. 
+        This object collects the cells into a dataflow graph, using the `cell` 
+        decorator. 
+        """,
+        "Runnable as a script": """
+        You can run marimo apps as scripts at the command line,
+        using Python. This will execute the cells in a
+        topologically sorted order, just as they would run if you opened the app 
+        with `marimo edit`.
+
+        For example: running our example as a script would print `Hello 
+        World!` to the console.
+        """,
+    }
+    return properties,
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+* for_jupyter_users
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.for_jupyter_users
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/for_jupyter_users.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.3.12"
+#+BEGIN_SRC python
+__generated_with = "0.3.12"
+
+#+END_SRC
+** Assignment app = marimo.App(app_title="marimo for Jupyter users")
+#+BEGIN_SRC python
+app = marimo.App(app_title="marimo for Jupyter users")
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """# marimo for Jupyter users
+
+        This notebook explains important differences between Jupyter and marimo. If you're
+        familiar with Jupyter and are trying out marimo for the first time, read on!
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Reactive execution
+
+        The biggest difference between marimo and Jupyter is *reactive execution*.
+
+        Try updating the value of x in the next cell, then run it.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    x = 0; x
+    return x,
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(x):
+    y = x + 1; y
+    return y,
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        marimo 'reacts' to the change in `x` and automatically recalculates `y`!
+
+        **Explanation.** marimo reads the code in your cells and understands the
+        dependences between them, based on the variables that each cell declares and
+        references. When you execute one cell, marimo automatically executes all other
+        cells that depend on it, not unlike a spreadsheet.
+
+        In contrast, Jupyter requires you to manually run each cell.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        ### Why?
+
+        Reactive execution frees you from the tedious task of manually re-running cells.
+
+        It also ensures that your code and outputs remain in sync:
+        
+        - You don't have to worry about whether you forgot to re-run a cell.
+        - When you delete a cell, its variables are automatically removed from
+        program memory. Affected cells are automatically invalidated.
+        
+        This makes marimo notebooks as reproducible as regular Python scripts.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Interactive elements built-in
+
+        marimo comes with a [large library of UI elements](https://docs.marimo.io/guides/interactivity.html) that are automatically
+        synchronized with Python.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    slider = mo.ui.slider(start=1, stop=10, label="$x$")
+    slider
+    return slider,
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(slider):
+    slider.value
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        **Explanation.** marimo is both a notebook and a library. Import `marimo as
+        mo` and use `mo.ui` to get access to powerful UI elements.
+
+        UI elements assigned to variables are automatically plugged into marimo's
+        reactive execution model: interactions automatically trigger execution of
+        cells that refer to them.
+
+        In contrast, Jupyter's lack of reactivity makes IPyWidgets difficult to use.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        ## Shareable as apps
+
+        marimo notebooks can be shared as read-only web apps: just serve it with
+
+        ```marimo run your_notebook.py```
+
+        at the command-line.
+
+        Not every marimo notebook needs to be shared as an app, but marimo makes it
+        seamless to do so if you want to. In this way, marimo works as a replacement
+        for both Jupyter and Streamlit.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        ## Cell order
+
+        In marimo, cells can be arranged in any order — marimo figures out the one true way to execute them based on variable declarations and references (in a ["topologically sorted"](https://en.wikipedia.org/wiki/Topological_sorting#:~:text=In%20computer%20science%2C%20a%20topological,before%20v%20in%20the%20ordering.) order)
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(z):
+    z.value
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    z = mo.ui.slider(1, 10, label="$z$"); z
+    return z,
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        This lets you arrange your cells in the way that makes the most sense to you. For example, put helper functions and imports at the bottom of a notebook, like an appendix.
+
+        In contrast, Jupyter notebooks implicitly assume a top-to-bottom execution order.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        rf"""
+        ## Re-assigning variables
+
+        marimo disallows variable re-assignment. Here is something commonly done in Jupyter notebooks that cannot be done in marimo:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    df = 0
+    return df,
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    df = 1
+    return df,
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(df):
+    results = df.groupby(["my_column"]).sum()
+    return results,
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        **Explanation.** `results` depends on `df`, but which value of `df` should it use? Reactivity makes it impossible to answer this question in a sensible way, so marimo disallows variable reassignment.
+
+        If you run into this error, here are your options:
+
+        1. combine definitions into one cell
+        2. prefix variables with an underscore (`_df`) to make them local to the cell
+        3. wrap your code in functions, or give your variables more descriptive names
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        ## Markdown
+
+        marimo only has Python cells, but you can still write Markdown: `import marimo as mo` and use `mo.md` to write Markdown.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, slider):
+    mo.md(
+        f"""
+        The value of {slider} is {slider.value}.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        **Explanation.** By lifting Markdown into Python, marimo lets you construct
+        dynamic Markdown parameterized by arbitrary Python elements. marimo knows
+        how to render its own elements, and you can use `mo.as_html` to render other
+        objects, like plots.
+
+        _Tip: toggle a markdown view via `Cmd/Ctrl-Shift-M` in an empty cell._
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        ## Notebook files
+
+        Jupyter saves notebooks as JSON files, with outputs serialized in them. This is helpful as a record of your plots and other results, but makes notebooks difficult to version and reuse.
+
+        ### marimo notebooks are Python scripts
+        marimo notebooks are stored as pure Python scripts. This lets you version them with git, execute them with the command line, and re-use logic from one notebook in another.
+
+        ### marimo notebooks do not store outputs
+        marimo does _not_ save your outputs in the file; if you want them saved, make sure to save them to disk with Python, or export to HTML via the notebook menu.
+
+        ### marimo notebooks are versionable with git
+
+        marimo is designed so that small changes in your code yield small git diffs!
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        rf"""
+        ## Parting thoughts
+
+        marimo is a **reinvention** of the Python notebook as a reproducible, interactive, and shareable Python program, instead of an error-prone scratchpad.
+
+        We believe that the tools we use shape the way we think — better tools, for better minds. With marimo, we hope to provide the Python community with a better programming environment to do research and communicate it; to experiment with code and share it; to learn computational science and teach it.
+
+        The marimo editor and library have many features not discussed here.
+        Check out [our docs](https://docs.marimo.io/) to learn more!
+        
+        _This guide was adapted from [Pluto for Jupyter
+        users](https://featured.plutojl.org/basic/pluto%20for%20jupyter%20users).
+        We ❤️ Pluto.jl!_
+        """
+    )
+    return
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+* intro
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.intro
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/intro.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.9.2"
+#+BEGIN_SRC python
+__generated_with = "0.9.2"
+
+#+END_SRC
+** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+
+    mo.md("# Welcome to marimo! 🌊🍃")
+    return (mo,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    slider = mo.ui.slider(1, 22)
+    return (slider,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, slider):
+    mo.md(
+        f"""
+        marimo is a **reactive** Python notebook.
+
+        This means that unlike traditional notebooks, marimo notebooks **run
+        automatically** when you modify them or
+        interact with UI elements, like this slider: {slider}.
+
+        {"##" + "🍃" * slider.value}
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: disabling automatic execution": mo.md(
+                rf"""
+            marimo lets you disable automatic execution: just go into the
+            notebook settings and set
+
+            "Runtime > On Cell Change" to "lazy".
+
+            When the runtime is lazy, after running a cell, marimo marks its
+            descendants as stale instead of automatically running them. The
+            lazy runtime puts you in control over when cells are run, while
+            still giving guarantees about the notebook state.
+            """
+            )
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        Tip: This is a tutorial notebook. You can create your own notebooks
+        by entering `marimo edit` at the command line.
+        """
+    ).callout()
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## 1. Reactive execution
+
+        A marimo notebook is made up of small blocks of Python code called
+        cells.
+
+        marimo reads your cells and models the dependencies among them: whenever
+        a cell that defines a global variable  is run, marimo
+        **automatically runs** all cells that reference that variable.
+
+        Reactivity keeps your program state and outputs in sync with your code,
+        making for a dynamic programming environment that prevents bugs before they
+        happen.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(changed, mo):
+    (
+        mo.md(
+            f"""
+            **✨ Nice!** The value of `changed` is now {changed}.
+
+            When you updated the value of the variable `changed`, marimo
+            **reacted** by running this cell automatically, because this cell
+            references the global variable `changed`.
+
+            Reactivity ensures that your notebook state is always
+            consistent, which is crucial for doing good science; it's also what
+            enables marimo notebooks to double as tools and  apps.
+            """
+        )
+        if changed
+        else mo.md(
+            """
+            **🌊 See it in action.** In the next cell, change the value of the
+            variable  `changed` to `True`, then click the run button.
+            """
+        )
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    changed = False
+    return (changed,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: execution order": (
+                """
+                The order of cells on the page has no bearing on
+                the order in which cells are executed: marimo knows that a cell
+                reading a variable must run after the cell that  defines it. This
+                frees you to organize your code in the way that makes the most
+                sense for you.
+                """
+            )
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        **Global names must be unique.** To enable reactivity, marimo imposes a
+        constraint on how names appear in cells: no two cells may define the same
+        variable.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: encapsulation": (
+                """
+                By encapsulating logic in functions, classes, or Python modules,
+                you can minimize the number of global variables in your notebook.
+                """
+            )
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: private variables": (
+                """
+                Variables prefixed with an underscore are "private" to a cell, so
+                they can be defined by multiple cells.
+                """
+            )
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## 2. UI elements
+
+        Cells can output interactive UI elements. Interacting with a UI
+        element **automatically triggers notebook execution**: when
+        you interact with a UI element, its value is sent back to Python, and
+        every cell that references that element is re-run.
+
+        marimo provides a library of UI elements to choose from under
+        `marimo.ui`.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md("""**🌊 Some UI elements.** Try interacting with the below elements.""")
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    icon = mo.ui.dropdown(["🍃", "🌊", "✨"], value="🍃")
+    return (icon,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(icon, mo):
+    repetitions = mo.ui.slider(1, 16, label=f"number of {icon.value}: ")
+    return (repetitions,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(icon, repetitions):
+    icon, repetitions
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(icon, mo, repetitions):
+    mo.md("# " + icon.value * repetitions.value)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## 3. marimo is just Python
+
+        marimo cells parse Python (and only Python), and marimo notebooks are
+        stored as pure Python files — outputs are _not_ included. There's no
+        magical syntax.
+
+        The Python files generated by marimo are:
+
+        - easily versioned with git, yielding minimal diffs
+        - legible for both humans and machines
+        - formattable using your tool of choice,
+        - usable as Python  scripts, with UI  elements taking their default
+        values, and
+        - importable by other modules (more on that in the future).
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## 4. Running notebooks as apps
+
+        marimo notebooks can double as apps. Click the app window icon in the
+        bottom-right to see this notebook in "app view."
+
+        Serve a notebook as an app with `marimo run` at the command-line.
+        Of course, you can use marimo just to level-up your
+        notebooking, without ever making apps.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## 5. The `marimo` command-line tool
+
+        **Creating and editing notebooks.** Use
+
+        ```
+        marimo edit
+        ```
+
+        in a terminal to start the marimo notebook server. From here
+        you can create a new notebook or edit existing ones.
+
+
+        **Running as apps.** Use
+
+        ```
+        marimo run notebook.py
+        ```
+
+        to start a webserver that serves your notebook as an app in read-only mode,
+        with code cells hidden.
+
+        **Convert a Jupyter notebook.** Convert a Jupyter notebook to a marimo
+        notebook using `marimo convert`:
+
+        ```
+        marimo convert your_notebook.ipynb > your_app.py
+        ```
+
+        **Tutorials.** marimo comes packaged with tutorials:
+
+        - `dataflow`: more on marimo's automatic execution
+        - `ui`: how to use UI elements
+        - `markdown`: how to write markdown, with interpolated values and
+           LaTeX
+        - `plots`: how plotting works in marimo
+        - `sql`: how to use SQL
+        - `layout`: layout elements in marimo
+        - `fileformat`: how marimo's file format works
+        - `markdown-format`: for using `.md` files in marimo
+        - `for-jupyter-users`: if you are coming from Jupyter
+
+        Start a tutorial with `marimo tutorial`; for example,
+
+        ```
+        marimo tutorial dataflow
+        ```
+
+        In addition to tutorials, we have examples in our
+        [our GitHub repo](https://www.github.com/marimo-team/marimo/tree/main/examples).
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## 6. The marimo editor
+
+        Here are some tips to help you get started with the marimo editor.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, tips):
+    mo.accordion(tips)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""## Finally, a fun fact""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        The name "marimo" is a reference to a type of algae that, under
+        the right conditions, clumps together to form a small sphere
+        called a "marimo moss ball". Made of just strands of algae, these
+        beloved assemblages are greater than the sum of their parts.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    tips = {
+        "Saving": (
+            """
+            **Saving**
+
+            - _Name_ your app using the box at the top of the screen, or
+              with `Ctrl/Cmd+s`. You can also create a named app at the
+              command line, e.g., `marimo edit app_name.py`.
+
+            - _Save_ by clicking the save icon on the bottom right, or by
+              inputting `Ctrl/Cmd+s`. By default marimo is configured
+              to autosave.
+            """
+        ),
+        "Running": (
+            """
+            1. _Run a cell_ by clicking the play ( ▷ ) button on the top
+            right of a cell, or by inputting `Ctrl/Cmd+Enter`.
+
+            2. _Run a stale cell_  by clicking the yellow run button on the
+            right of the cell, or by inputting `Ctrl/Cmd+Enter`. A cell is
+            stale when its code has been modified but not run.
+
+            3. _Run all stale cells_ by clicking the play ( ▷ ) button on
+            the bottom right of the screen, or input `Ctrl/Cmd+Shift+r`.
+            """
+        ),
+        "Console Output": (
+            """
+            Console output (e.g., `print()` statements) is shown below a
+            cell.
+            """
+        ),
+        "Creating, Moving, and Deleting Cells": (
+            """
+            1. _Create_ a new cell above or below a given one by clicking
+                the plus button to the left of the cell, which appears on
+                mouse hover.
+
+            2. _Move_ a cell up or down by dragging on the handle to the 
+                right of the cell, which appears on mouse hover.
+
+            3. _Delete_ a cell by clicking the trash bin icon. Bring it
+                back by clicking the undo button on the bottom right of the
+                screen, or with `Ctrl/Cmd+Shift+z`.
+            """
+        ),
+        "Disabling Automatic Execution": (
+            """
+            Via the notebook settings (gear icon) or footer panel, you
+            can disable automatic execution. This is helpful when
+            working with expensive notebooks or notebooks that have
+            side-effects like database transactions.
+            """
+        ),
+        "Disabling Cells": (
+            """
+            You can disable a cell via the cell context menu.
+            marimo will never run a disabled cell or any cells that depend on it.
+            This can help prevent accidental execution of expensive computations
+            when editing a notebook.
+            """
+        ),
+        "Code Folding": (
+            """
+            You can collapse or fold the code in a cell by clicking the arrow
+            icons in the line number column to the left, or by using keyboard
+            shortcuts.
+
+            Use the command palette (`Ctrl/Cmd+k`) or a keyboard shortcut to
+            quickly fold or unfold all cells.
+            """
+        ),
+        "Code Formatting": (
+            """
+            If you have [ruff](https://github.com/astral-sh/ruff) installed,
+            you can format a cell with the keyboard shortcut `Ctrl/Cmd+b`.
+            """
+        ),
+        "Command Palette": (
+            """
+            Use `Ctrl/Cmd+k` to open the command palette.
+            """
+        ),
+        "Keyboard Shortcuts": (
+            """
+            Open the notebook menu (top-right) or input `Ctrl/Cmd+Shift+h` to
+            view a list of all keyboard shortcuts.
+            """
+        ),
+        "Configuration": (
+            """
+           Configure the editor by clicking the gears icon near the top-right
+           of the screen.
+           """
+        ),
+    }
+    return (tips,)
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+* layout
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.layout
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/layout.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.1.69"
+#+BEGIN_SRC python
+__generated_with = "0.1.69"
+
+#+END_SRC
+** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        # Layout
+
+        `marimo` provides functions to help you lay out your output, such as
+        in rows and columns, accordions, tabs, and callouts.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Rows and columns
+
+        Arrange objects into rows and columns with `mo.hstack` and `mo.vstack`.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.hstack(
+        [mo.ui.text(label="hello"), mo.ui.slider(1, 10, label="slider")],
+        justify="start",
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.vstack([mo.ui.text(label="world"), mo.ui.number(1, 10, label="number")])
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    grid = mo.vstack(
+        [
+            mo.hstack(
+                [mo.ui.text(label="hello"), mo.ui.slider(1, 10, label="slider")],
+            ),
+            mo.hstack(
+                [mo.ui.text(label="world"), mo.ui.number(1, 10, label="number")],
+            ),
+        ],
+    ).center()
+
+    mo.md(
+        f"""
+        Combine `mo.hstack` with `mo.vstack` to make grids:
+
+        {grid}
+
+        You can pass anything to `mo.hstack` to `mo.vstack` (including
+        plots!).
+        """
+    )
+    return grid,
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        **Customization.**
+        The presentation of stacked elements can be customized with some arguments
+        that are best understood by example.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    justify = mo.ui.dropdown(
+        ["start", "center", "end", "space-between", "space-around"],
+        value="space-between",
+        label="justify",
+    )
+    align = mo.ui.dropdown(
+        ["start", "center", "end", "stretch"], value="center", label="align"
+    )
+    gap = mo.ui.number(start=0, step=0.25, stop=2, value=0.5, label="gap")
+    wrap = mo.ui.checkbox(label="wrap")
+
+    mo.hstack([justify, align, gap, wrap], justify="center")
+    return align, gap, justify, wrap
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    size = mo.ui.slider(label="box size", start=60, stop=500)
+    mo.hstack([size], justify="center")
+    return size,
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(align, boxes, gap, justify, mo, wrap):
+    mo.hstack(
+        boxes,
+        align=align.value,
+        justify=justify.value,
+        gap=gap.value,
+        wrap=wrap.value,
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(align, boxes, gap, mo):
+    mo.vstack(
+        boxes,
+        align=align.value,
+        gap=gap.value,
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, size):
+    def create_box(num=1):
+        box_size = size.value + num * 10
+        return mo.Html(
+            f"<div style='min-width: {box_size}px; min-height: {box_size}px; background-color: orange; text-align: center; line-height: {box_size}px'>{str(num)}</div>"
+        )
+
+
+    boxes = [create_box(i) for i in range(1, 5)]
+    return boxes, create_box
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Documentation: `mo.hstack`": mo.doc(mo.hstack),
+            "Documentation: `mo.vstack`": mo.doc(mo.vstack),
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        **Justifying `Html`.** While you can center or right-justify any object
+        using `mo.hstack`, `Html` objects (returned by most marimo
+        functions, and subclassed by most marimo classes) have a shortcut using
+        via their `center`, `right`, and `left` methods.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md("This markdown is left-justified.")
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md("This markdown is centered.").center()
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md("This markdown is right-justified.").right()
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Documentation: `Html.center`": mo.doc(mo.Html.center),
+            "Documentation: `Html.right`": mo.doc(mo.Html.right),
+            "Documentation: `Html.left`": mo.doc(mo.Html.left),
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Accordion
+
+        Create expandable shelves of content using `mo.accordion`:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        An accordion can contain multiple items:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.accordion(
+        {
+            "Multiple items": "By default, only one item can be open at a time",
+            "Allow multiple items to be open": (
+                """
+                Use the keyword argument `multiple=True` to allow multiple items
+                to be open at the same time
+                """
+            ),
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Tabs
+
+        Use `mo.ui.tabs` to display multiple objects in a single tabbed output:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    _settings = mo.vstack(
+        [
+            mo.md("**Edit User**"),
+            mo.ui.text(label="First Name"),
+            mo.ui.text(label="Last Name"),
+        ]
+    )
+
+    _organization = mo.vstack(
+        [
+            mo.md("**Edit Organization**"),
+            mo.ui.text(label="Organization Name"),
+            mo.ui.number(label="Number of employees", start=0, stop=1000),
+        ]
+    )
+
+    mo.ui.tabs(
+        {
+            "🧙‍♀ User": _settings,
+            "🏢 Organization": _organization,
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion({"Documentation: `mo.ui.tabs`": mo.doc(mo.ui.tabs)})
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    _t = [
+        mo.md("**Hello!**"),
+        mo.md(r"$f(x)$"),
+        {"c": mo.ui.slider(1, 10), "d": (mo.ui.checkbox(), mo.ui.switch())},
+    ]
+
+    mo.md(
+        f"""
+        ## Tree
+
+        Display a nested structure of lists, dictionaries, and tuples with
+        `mo.tree`:
+
+        {mo.tree(_t)}
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion({"Documentation: `mo.tree`": mo.doc(mo.tree)})
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Callout
+
+        Turn any markdown or HTML into an emphasized callout with the `callout`
+        method:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    callout_kind = mo.ui.dropdown(
+        ["neutral", "warn", "success", "info", "danger"], value="neutral"
+    )
+    return callout_kind,
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(callout_kind, mo):
+    mo.md(
+        f"""
+        **This is a callout!**
+
+        You can turn any HTML or markdown into an emphasized callout.
+        You can choose from a variety of different callout kind. This one is:
+        {callout_kind}
+        """
+    ).callout(kind=callout_kind.value)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion({"Documentation: `mo.callout`": mo.doc(mo.callout)})
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return mo,
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+* markdown
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.markdown
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/markdown.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.8.22"
+#+BEGIN_SRC python
+__generated_with = "0.8.22"
+
+#+END_SRC
+** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        # Hello, Markdown!
+
+        Use marimo's "`md`" function to write markdown. This function compiles Markdown into HTML that marimo can display.
+
+        For example, here's the code that rendered the above title and
+        paragraph:
+
+        ```python3
+        mo.md(
+            '''
+            # Hello, Markdown!
+
+            Use marimo's "`md`" function to embed rich text into your marimo
+            apps. This function compiles your Markdown into HTML that marimo
+            can display.
+            '''
+        )
+        ```
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    mo.md(
+        """
+        **Tip: toggling between Markdown and Python views**
+
+        Although markdown is written with `mo.md`, marimo provides a markdown view
+        that hides this boilerplate from you. You can toggle between Markdown and
+        Python views by clicking the button in the top-right of this cell or
+        entering `Ctrl/Cmd+Shift+M`.
+
+        **Tip**: To interpolate Python values into markdown strings, you'll
+        need to use `mo.md(f"...")` directly; the markdown view does not support
+        f-strings.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        ## LaTeX
+        You can embed LaTeX in Markdown.
+
+        For example,
+
+        ```python3
+        mo.md(r'$f : \mathbf{R} \to \mathbf{R}$')
+        ```
+
+        renders $f : \mathbf{R} \to \mathbf{R}$, while
+
+        ```python3
+        mo.md(
+            r'''
+            \[
+            f: \mathbf{R} \to \mathbf{R}
+            \]
+            '''
+        )
+        ```
+
+        renders the display math
+
+        \[
+        f: \mathbf{R} \to \mathbf{R}.
+        \]
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: `r''` strings": mo.md(
+                "Use `r''` strings to remove the need to escape backslashes"
+                " when writing LaTeX."
+            )
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Interpolating Python values
+
+        You can interpolate Python values into markdown using
+        `f-strings` and marimo's ` as_html` function. This lets you create
+        markdown whose contents depend on data that changes at runtime.
+
+        Here are some examples.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(
+    matplotlib_installed,
+    missing_matplotlib_msg,
+    missing_numpy_msg,
+    mo,
+    np,
+    numpy_installed,
+    plt,
+):
+    def _sine_plot():
+        if not numpy_installed:
+            return missing_numpy_msg
+        if not matplotlib_installed:
+            return missing_matplotlib_msg
+        _x = np.linspace(start=0, stop=2 * np.pi)
+        plt.plot(_x, np.sin(_x))
+        return plt.gca()
+
+
+    mo.md(
+        f"""
+        ### Plots
+        A matplotlib figure:
+
+        ```python3
+        _x = np.linspace(start=0, stop=2*np.pi)
+        sine_plot = plt.plot(_x, np.sin(_x))
+        mo.md(f"{{mo.as_html(sine_plot)}}")
+        ```
+        yields
+
+        {mo.as_html(_sine_plot())}
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    leaves = mo.ui.slider(1, 32, label="🍃: ")
+
+    mo.md(
+        f"""
+        ### UI elements
+
+        A `marimo.ui` object:
+
+        ```python3
+        leaves = mo.ui.slider(1, 16, label="🍃: ")
+        mo.md(f"{{leaves}}")
+        ```
+
+        yields
+
+        {leaves}
+        """
+    )
+    return (leaves,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(leaves, mo):
+    mo.md(f"Your leaves: {'🍃' * leaves.value}")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: UI elements can format themselves": """
+            marimo objects know how to format themselves, so you can omit the
+            call to `as_html`.
+            """
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(missing_numpy_msg, mo, np, numpy_installed):
+    def make_dataframe():
+        try:
+            import pandas as pd
+        except ModuleNotFoundError:
+            return mo.md("Oops! Looks like you don't have `pandas` installed.")
+
+        if not numpy_installed:
+            return missing_numpy_msg
+
+        x = np.linspace(0, 2 * np.pi, 10)
+        y = np.sin(x)
+        return pd.DataFrame({"x": x, "sin(x)": y})
+
+
+    mo.md(
+        f"""
+        ### Other objects
+
+        Use `mo.as_html` to convert objects to HTML. This function
+        generates rich HTML for many Python types, including:
+
+        - lists, dicts, and tuples,
+        - `pandas` dataframes and series,
+        - `seaborn` figures,
+        - `plotly` figures, and
+        - `altair` figures.
+
+        For example, here's a pandas dataframe:
+
+        {mo.as_html(make_dataframe())}
+        """
+    )
+    return (make_dataframe,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: outputs are automatically converted to HTML": """
+            `mo.as_html` is only needed when interpolating objects into
+            markdown; the last expression of a cell (its output) is
+            converted to HTML automatically.
+            """
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Putting it all together
+
+        Here's a more interesting example that puts together
+        everything we've learned: rendering markdown with LaTeX that depends on
+        the values of Python objects.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(math, mo):
+    amplitude = mo.ui.slider(1, 2, step=0.1, label="amplitude: ")
+    period = mo.ui.slider(
+        math.pi / 4,
+        4 * math.pi,
+        value=2 * math.pi,
+        step=math.pi / 8,
+        label="period: ",
+    )
+    return amplitude, period
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(
+    matplotlib_installed,
+    missing_matplotlib_msg,
+    missing_numpy_msg,
+    mo,
+    np,
+    numpy_installed,
+    plt,
+):
+    @mo.cache
+    def plotsin(amplitude, period):
+        if not numpy_installed:
+            return missing_numpy_msg
+        elif not matplotlib_installed:
+            return missing_matplotlib_msg
+        x = np.linspace(0, 2 * np.pi, 256)
+        plt.plot(x, amplitude * np.sin(2 * np.pi / period * x))
+        plt.ylim(-2.2, 2.2)
+        return plt.gca()
+    return (plotsin,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(amplitude, mo, period):
+    mo.md(
+        f"""
+        **A sin curve.**
+
+        - {amplitude}
+        - {period}
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(amplitude, mo, period, plotsin):
+    mo.md(
+        rf"""
+        You're viewing the graph of
+
+        \[
+        f(x) = {amplitude.value}\sin((2\pi/{period.value:0.2f})x),
+        \]
+
+        with $x$ ranging from $0$ to $2\pi$.
+        {mo.as_html(plotsin(amplitude.value, period.value))}
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    matplotlib_installed = False
+    numpy_installed = False
+    missing_numpy_msg = mo.md("Oops! Looks like you don't have `numpy` installed.")
+    missing_matplotlib_msg = mo.md(
+        "Oops! Looks like you don't have `matplotlib` installed."
+    )
+
+    try:
+        import matplotlib.pyplot as plt
+
+        matplotlib_installed = True
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        import numpy as np
+
+        numpy_installed = True
+    except ModuleNotFoundError:
+        pass
+    return (
+        matplotlib_installed,
+        missing_matplotlib_msg,
+        missing_numpy_msg,
+        np,
+        numpy_installed,
+        plt,
+    )
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    import math
+
+    import marimo as mo
+    return math, mo
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+* plots
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.plots
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/plots.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.8.22"
+#+BEGIN_SRC python
+__generated_with = "0.8.22"
+
+#+END_SRC
+** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""# Plotting""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(check_dependencies):
+    check_dependencies()
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        marimo supports several popular plotting libraries, including matplotlib,
+        plotly, seaborn, and altair. 
+
+        This tutorial gives examples using matplotlib; other libraries are
+        used similarly.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""## Matplotlib""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        To show a plot, include it in the last expression of a cell (just
+        like any other output).
+
+        ```python3
+        # create the plot in the last line of the cell
+        import matplotlib.pyplot as plt
+        plt.plot([1, 2])
+        ```
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(plt):
+    plt.plot([1, 2])
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ```python3
+        # create a plot
+        plt.plot([1, 2])
+        # ... do some work ...
+        # make plt.gca() the last line of the cell
+        plt.gca()
+        ```
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(plt):
+    plt.plot([1, 2])
+    # ... do some work ...
+    # make plt.gca() the last line of the cell
+    plt.gca()
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo, plt_show_explainer):
+    mo.accordion(plt_show_explainer)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        **A new figure every cell.** Every cell starts with an empty figure for 
+        the imperative `pyplot` API.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(np):
+    x = np.linspace(start=-4, stop=4, num=100, dtype=float)
+    return (x,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(plt, x):
+    plt.plot(x, x)
+    plt.plot(x, x**2)
+    plt.gca()
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(plt, x):
+    plt.plot(x, x**3)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        To build a figure over multiple cells, use the object-oriented API and
+        create your own axis:
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(plt, x):
+    _, axis = plt.subplots()
+    axis.plot(x, x)
+    axis.plot(x, x**2)
+    axis
+    return (axis,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(axis, x):
+    axis.plot(x, x**3)
+    axis
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### Draw plots interactively
+
+        Draw plots interactively by parametrizing them with UI elements.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    exponent = mo.ui.slider(1, 5, value=1, step=1, label='exponent')
+
+    mo.md(
+        f"""
+        **Visualizing powers.**
+
+        {exponent}
+        """
+    )
+    return (exponent,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, plt, x):
+    @mo.cache
+    def plot_power(exponent):
+        plt.plot(x, x**exponent)
+        return plt.gca()
+    return (plot_power,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(exponent, mo, plot_power):
+    _tex = (
+        f"$$f(x) = x^{exponent.value}$$" if exponent.value > 1 else "$$f(x) = x$$"
+    )
+
+    mo.md(
+        f"""
+
+        {_tex}
+
+        {mo.as_html(plot_power(exponent.value))}
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""## Other libraries""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        marimo also supports these other plotting libraries:
+
+        - Plotly
+        - Seaborn
+        - Altair
+
+        Just output their figure objects as the last expression of a cell,
+        or embed them in markdown with `mo.as_html`.
+
+        If you would like another library to be integrated into marimo, please
+        get in touch.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(missing_packages, mo):
+    module_not_found_explainer = mo.md(
+        """
+        ## Oops!
+
+        It looks like you're missing a package that this tutorial 
+        requires.
+
+        Close marimo, install **`numpy`** and **`matplotlib`**, then 
+        open this tutorial once more.
+
+        If you use `pip`, run
+
+        ```
+        pip install numpy matplotlib
+        ```
+
+        at your command line.
+        """
+    ).callout(kind='warn')
+
+    def check_dependencies():
+        if missing_packages:
+            return module_not_found_explainer
+    return check_dependencies, module_not_found_explainer
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    plt_show_explainer = {
+        "Using `plt.show()`": """
+        You can use `plt.show()` or `figure.show()` to display
+        plots in the console area of a cell. Keep in mind that console
+        outputs are not shown in the app view.
+        """
+    }
+    return (plt_show_explainer,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    try:
+        import matplotlib
+        import matplotlib.pyplot as plt
+        import numpy as np
+        missing_packages = False
+    except ModuleNotFoundError:
+        missing_packages = True
+
+    if not missing_packages:
+        matplotlib.rcParams['figure.figsize'] = (6, 2.4)
+    return matplotlib, missing_packages, np, plt
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return (mo,)
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+* sql
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.sql
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/sql.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.9.2"
+#+BEGIN_SRC python
+__generated_with = "0.9.2"
+
+#+END_SRC
+** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        # Hello, SQL!
+
+        _Let's dive into the world of SQL where we don't just address tables, we also join them!_
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        With marimo, you can mix-and-match both **Python and SQL**. To create a
+        SQL cell, you first need to install some additional dependencies,
+        including [duckdb](https://duckdb.org/). Obtain these dependencies with
+
+        ```bash
+        pip install 'marimo[sql]'
+        ```
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    has_duckdb_installed = False
+    try:
+        import duckdb
+
+        has_duckdb_installed = True
+    except ImportError:
+        pass
+
+    has_polars_installed = False
+    try:
+        import polars
+
+        has_polars_installed = True
+    except ImportError:
+        pass
+
+    has_pandas_installed = False
+    try:
+        import pandas
+
+        has_pandas_installed = True
+    except ImportError:
+        pass
+    return (
+        duckdb,
+        has_duckdb_installed,
+        has_pandas_installed,
+        has_polars_installed,
+        pandas,
+        polars,
+    )
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(has_duckdb_installed, mo):
+    if has_duckdb_installed:
+        mo.output.replace(
+            mo.md(
+                """
+        !!! Tip "Installed"
+            If you see this, DuckDB is already installed.
+        """
+            )
+        )
+    else:
+        mo.output.replace(
+            mo.md(
+                """
+        !!! Warning "Not Installed"
+            If you see this, DuckDB is not installed.
+        """
+            )
+        )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        Once the required dependencies are installed, you can create SQL cells
+        by either right clicking the **Add Cell** buttons on the left of a
+        cell, or click the **Add SQL Cell** at the bottom of the page.
+
+        marimo is still just Python, even when using SQL. Here is an example of
+        how marimo embeds SQL in Python in its file format:
+
+        ```python
+        output_df = mo.sql(f"SELECT * FROM my_table LIMIT {max_rows.value}")
+        ```
+
+        Notice that we have an **`output_df`** variable in the cell. This is a
+        resulting Polars DataFrame (if you have `polars` installed) or a Pandas
+        DataFrame (if you don't). One of them must be installed in order to
+        interact with the SQL result.
+
+        The SQL statement itself is an formatted string (f-string), so this
+        means they can contain any valid Python code, such as the values of UI
+        elements. This means your SQL statement and results can be reactive! 🚀
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""## Querying dataframes with SQL""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(r"""Let's take a look at a SQL cell. The next cell generates a dataframe called `df`.""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(has_polars_installed):
+    _SIZE = 1000
+
+
+    def _create_token_data(n_items=100):
+        import random
+        import string
+
+        def generate_random_string(length):
+            letters = string.ascii_lowercase
+            result_str = "".join(random.choice(letters) for i in range(length))
+            return result_str
+
+        def generate_random_numbers(mean, std_dev, num_samples):
+            return [int(random.gauss(mean, std_dev)) for _ in range(num_samples)]
+
+        random_numbers = generate_random_numbers(50, 15, n_items)
+        random_strings = sorted(
+            list(set([generate_random_string(3) for _ in range(n_items)]))
+        )
+
+        return {
+            "token": random_strings,
+            "count": random_numbers[: len(random_strings)],
+        }
+
+
+    _data = _create_token_data(_SIZE)
+
+    # Try polars
+    if has_polars_installed:
+        import polars as pl
+
+        df = pl.DataFrame(_data)
+    # Fallback to pandas (maybe trying to install it)
+    else:
+        import pandas as pd
+
+        df = pd.DataFrame(_data)
+    return df, pd, pl
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(r"""Next, we create a SQL query, refercing the Python dataframe `df` directly.""")
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(df, mo):
+    _df = mo.sql(
+        f"""
+        -- This SQL cell is special since we can reference existing dataframes in the global scope as a table in the SQL query. For example, we can reference the `df` dataframe in the global scope, which was defined in another cell using Python.
+
+        SELECT * FROM df;
+
+        -- By default, the output variable starts with an underscore (`_df`), making it private to this cell. To access the query result in another cell, change the name of the output variable.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""## From Python to SQL and back""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(r"""You can create SQL statements that depend on Python values, such as UI elements:""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo, string):
+    token_prefix = mo.ui.dropdown(
+        list(string.ascii_lowercase), label="token prefix", value="a"
+    )
+    token_prefix
+    return (token_prefix,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(df, mo, token_prefix):
+    result = mo.sql(
+        f"""
+        -- Change the dropdown to see the SQL query filter itself!
+        --
+        -- Here we use a duckdb function called `starts_with`:
+        SELECT * FROM df WHERE starts_with(token, '{token_prefix.value}')
+
+        -- Notice that we named the output variable `result`
+        """
+    )
+    return (result,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        Since we named the output variable above **`result`**,
+        we can use it back in Python.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    charting_library = mo.ui.radio(["matplotlib", "altair", "plotly"])
+
+    mo.md(
+        f"""
+        Let's chart the result with a library of your choice:
+
+        {charting_library}
+        """
+    )
+    return (charting_library,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(charting_library, mo, render_chart, token_prefix):
+    _header = mo.md(
+        f"""
+        We can re-use the dropdown from above: {token_prefix}
+
+        Now we have a histogram visualizing the token count distribution of tokens starting
+        with {token_prefix.value}, powered by your SQL query and UI element.
+        """
+    )
+
+    render_chart(
+        charting_library.value, _header
+    ) if charting_library.value else None
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo, result, token_prefix):
+    def render_chart(charting_library, header):
+        return mo.vstack(
+            [header, render_charting_library(charting_library)]
+        ).center()
+
+
+    def render_charting_library(charting_library):
+        if charting_library == "matplotlib":
+            return render_matplotlib()
+        if charting_library == "altair":
+            return render_altair()
+        if charting_library == "plotly":
+            return render_plotly()
+
+
+    def render_matplotlib():
+        import matplotlib.pyplot as plt
+
+        plt.hist(result["count"], label=token_prefix.value)
+        plt.xlabel("token count")
+        plt.legend()
+        plt.tight_layout()
+        return plt.gcf()
+
+
+    def render_altair():
+        import altair as alt
+
+        chart = (
+            alt.Chart(result)
+            .mark_bar()
+            .encode(x=alt.X("count", bin=True), y=alt.Y("count()"))
+        )
+        return mo.ui.altair_chart(chart, chart_selection=False)
+
+
+    def render_plotly():
+        import plotly.graph_objects as go
+
+        return go.Figure(data=[go.Histogram(x=result["count"])])
+    return (
+        render_altair,
+        render_chart,
+        render_charting_library,
+        render_matplotlib,
+        render_plotly,
+    )
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(r"""## CSVs, Parquet, Postgres, and more ...""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        We're not limited to querying dataframes. We can also query an **HTTP URL, S3 path, or a file path to a local csv or parquet file**.
+
+        ```sql
+        -- or
+        SELECT * FROM 's3://my-bucket/file.parquet';
+        -- or
+        SELECT * FROM read_csv('path/to/example.csv');
+        -- or
+        SELECT * FROM read_parquet('path/to/example.parquet');
+        ```
+
+        With a bit of boilerplate, you can even read and write to **Postgres**, and join Postgres tables with dataframes in the same query. For a full list of supported data sources, check out the [duckdb extensions](https://duckdb.org/docs/extensions/overview) and our [example notebook on duckdb connections](https://github.com/marimo-team/marimo/blob/main/examples/sql/duckdb_connections.**py**).
+
+        For this example, we will query an HTTP endpoint of a csv.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(cars, mo):
+    cars = mo.sql(
+        f"""
+        -- Download a CSV and create an in-memory table; this is optional.
+        CREATE OR replace TABLE cars as
+        FROM 'https://datasets.marimo.app/cars.csv';
+
+        -- Query the table
+        SELECT * from cars;
+        """
+    )
+    return (cars,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        !!! Tip "Data sources panel"
+            Click the database "barrel" icon in the left toolbar to see all dataframes and in-
+            memory tables that you're notebook has access to.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(cars, mo):
+    cylinders_dropdown = mo.ui.range_slider.from_series(
+        cars["Cylinders"], debounce=True, show_value=True
+    )
+    origin_dropdown = mo.ui.dropdown.from_series(cars["Origin"], value="Asia")
+    mo.hstack([cylinders_dropdown, origin_dropdown]).left()
+    return cylinders_dropdown, origin_dropdown
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(cars, cylinders_dropdown, mo, origin_dropdown):
+    filtered_cars = mo.sql(
+        f"""
+        SELECT * FROM cars
+        WHERE
+            Cylinders >= {cylinders_dropdown.value[0]}
+            AND
+            Cylinders <= {cylinders_dropdown.value[1]}
+            AND
+            ORIGIN = '{origin_dropdown.value}'
+        """
+    )
+    return (filtered_cars,)
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(filtered_cars, mo):
+    mo.hstack(
+        [
+            mo.stat(label="Total cars", value=str(len(filtered_cars))),
+            mo.stat(
+                label="Average MPG Highway",
+                value=f"{filtered_cars['MPG_Highway'].mean() or 0:.1f}",
+            ),
+            mo.stat(
+                label="Average MPG City",
+                value=f"{filtered_cars['MPG_City'].mean() or 0:.1f}",
+            ),
+        ]
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    import marimo as mo
+    import random
+    return mo, random
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __():
+    import string
+    return (string,)
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC
+* ui
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tutorials.ui
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_tutorials/ui.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+import marimo
+
+#+END_SRC
+** Assignment __generated_with = "0.9.14"
+#+BEGIN_SRC python
+__generated_with = "0.9.14"
+
+#+END_SRC
+** Assignment app = marimo.App()
+#+BEGIN_SRC python
+app = marimo.App()
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        # UI Elements
+
+        One of marimo's most powerful features is its first-class
+        support for interactive user interface (UI) elements: interacting
+        with a UI element will automatically run cells that reference it.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""## marimo.ui""")
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    slider = mo.ui.slider(start=1, stop=10, step=1)
+    slider
+
+    mo.md(
+        f"""
+        The `marimo.ui` module has a library of pre-built elements.
+
+        For example, here's a `slider`: {slider}
+        """
+    )
+    return (slider,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo, slider):
+    mo.md(f"and here's its value: **{slider.value}**.")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### How interactions run cells
+
+        Whenever you interact with a UI element, its value is sent back to 
+        Python. When this happens, all cells that reference the global variable 
+        bound to the UI element, but don't define it, will run.
+
+        This simple rule lets you use UI elements to
+        drive the execution of your program, letting you build
+        interactive notebooks and tools for yourselves and others.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo, slider):
+    mo.accordion(
+        {
+            "Tip: assign UI elements to global variables": (
+                """
+                Interacting with a displayed UI element will only 
+                trigger reactive execution if the UI element is assigned
+                to a global variable.
+                """
+            ),
+            "Tip: accessing an element's value": (
+                """
+                Every UI element has a value attribute that you can access in 
+                Python.
+                """
+            ),
+            "Tip: embed UI elements in markdown": mo.md(
+                f"""
+                You can embed UI elements in markdown using f-strings.
+
+                For example, we can render the slider here: {slider}
+                """
+            ),
+        }
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""### Simple elements""")
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md("""marimo has a [large library of simple UI elements](https://docs.marimo.io/api/inputs/index.html). Here are a just few examples:""")
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    number = mo.ui.number(start=1, stop=10, step=1)
+    number
+    return (number,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(number):
+    number.value
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    checkbox = mo.ui.checkbox(label="checkbox")
+    checkbox
+    return (checkbox,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(checkbox):
+    checkbox.value
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    text = mo.ui.text(placeholder="type some text ...")
+    text
+    return (text,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(text):
+    text.value
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    text_area = mo.ui.text_area(placeholder="type some text ...")
+    text_area
+    return (text_area,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(text_area):
+    text_area.value
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    dropdown = mo.ui.dropdown(["a", "b", "c"])
+    dropdown
+    return (dropdown,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(dropdown):
+    dropdown.value
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    run_button = mo.ui.run_button(label="click me")
+    run_button
+    return (run_button,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(run_button):
+    "Run button was clicked!" if run_button.value else "Click the run button!"
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    file_upload = mo.ui.file(kind="area")
+    file_upload
+    return (file_upload,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(file_upload):
+    file_upload.value
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(basic_ui_elements, mo):
+    mo.md(f"To see more examples, use this dropdown: {basic_ui_elements}")
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(basic_ui_elements, construct_element, show_element):
+    selected_element = construct_element(basic_ui_elements.value)
+    show_element(selected_element)
+    return (selected_element,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(selected_element, value):
+    value(selected_element)
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(basic_ui_elements, documentation):
+    documentation(basic_ui_elements.value)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ### Composite elements
+
+            Composite elements are advanced elements 
+            let you build UI elements out of other UI elements. 
+
+            Use these powerful elements to logically group together related elements, 
+            create a dynamic set of UI elements, or reduce the number of global 
+            variables in your program.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        This first example shows how to create an array of UI elements using `mo.ui.array`.
+        When you interact with an element in the array, all cells that reference the
+        array are reactively run. If you instead used a regular Python list, cells referring to the list would _not_ be run.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    array = mo.ui.array(
+        [mo.ui.text(), mo.ui.slider(start=1, stop=10), mo.ui.date()]
+    )
+    array
+    return (array,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(array):
+    array.value
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(r"""marimo also comes with `mo.ui.dictionary`, which is analogous to `mo.ui.array`""")
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    dictionary = mo.ui.dictionary(
+        {
+            "text": mo.ui.text(),
+            "slider": mo.ui.slider(start=1, stop=10),
+            "date": mo.ui.date(),
+        }
+    )
+    dictionary
+    return (dictionary,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(dictionary):
+    dictionary.value
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(composite_elements, mo):
+    mo.md(
+        f"To see additional composite elements, use this dropdown: {composite_elements}"
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(composite_elements, construct_element, show_element):
+    composite_element = construct_element(composite_elements.value)
+    show_element(composite_element)
+    return (composite_element,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(composite_element, value):
+    value(composite_element)
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(composite_elements, documentation):
+    documentation(composite_elements.value)
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        ### Building custom elements
+
+        marimo supports third-party UI elements through anywidget — this lets you build
+        your own interactive UI elements, or use widgets built by others in the
+        community. To learn more, [see our
+        docs](https://docs.marimo.io/guides/integrating_with_marimo/custom_ui_plugins.html).
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell(hide_code=True): Function __
+#+BEGIN_SRC python
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        """
+        ## Appendix
+        The remaining cells are helper data structures and functions.
+        You can look at their code if you're curious how certain parts of this 
+        tutorial were implemented.
+        """
+    )
+    return
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    composite_elements = mo.ui.dropdown(
+        options=dict(
+            sorted(
+                {
+                    "array": mo.ui.array,
+                    "batch": mo.ui.batch,
+                    "dictionary": mo.ui.dictionary,
+                    "form": mo.ui.form,
+                }.items()
+            )
+        ),
+        allow_select_none=True
+    )
+    return (composite_elements,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    basic_ui_elements = mo.ui.dropdown(
+        options=dict(
+            sorted(
+                {
+                    "button": mo.ui.button,
+                    "checkbox": mo.ui.checkbox,
+                    "date": mo.ui.date,
+                    "dropdown": mo.ui.dropdown,
+                    "file": mo.ui.file,
+                    "multiselect": mo.ui.multiselect,
+                    "number": mo.ui.number,
+                    "radio": mo.ui.radio,
+                    "range_slider": mo.ui.range_slider,
+                    "slider": mo.ui.slider,
+                    "switch": mo.ui.switch,
+                    "tabs": mo.ui.tabs,
+                    "table": mo.ui.table,
+                    "text": mo.ui.text,
+                    "text_area": mo.ui.text_area,
+                }.items()
+            )
+        ),
+    )
+    return (basic_ui_elements,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    def construct_element(value):
+        if value == mo.ui.array:
+            return mo.ui.array(
+                [mo.ui.text(), mo.ui.slider(1, 10), mo.ui.date()]
+            )
+        elif value == mo.ui.batch:
+            return mo.md(
+                """
+                - Name: {name}
+                - Date: {date}
+                """
+            ).batch(name=mo.ui.text(), date=mo.ui.date())
+        elif value == mo.ui.button:
+            return mo.ui.button(
+                value=0, label="click me", on_click=lambda value: value + 1
+            )
+        elif value == mo.ui.checkbox:
+            return mo.ui.checkbox(label="check me")
+        elif value == mo.ui.date:
+            return mo.ui.date()
+        elif value == mo.ui.dictionary:
+            return mo.ui.dictionary(
+                {
+                    "slider": mo.ui.slider(1, 10),
+                    "text": mo.ui.text("type something!"),
+                    "array": mo.ui.array(
+                        [
+                            mo.ui.button(value=0, on_click=lambda v: v + 1)
+                            for _ in range(3)
+                        ],
+                        label="buttons",
+                    ),
+                }
+            )
+        elif value == mo.ui.dropdown:
+            return mo.ui.dropdown(["a", "b", "c"])
+        elif value == mo.ui.file:
+            return [mo.ui.file(kind="button"), mo.ui.file(kind="area")]
+        elif value == mo.ui.form:
+            return mo.ui.text_area(placeholder="...").form()
+        elif value == mo.ui.multiselect:
+            return mo.ui.multiselect(["a", "b", "c"])
+        elif value == mo.ui.number:
+            return mo.ui.number(start=1, stop=10, step=0.5)
+        elif value == mo.ui.radio:
+            return mo.ui.radio(["a", "b", "c"], value="a")
+        elif value == mo.ui.range_slider:
+            return mo.ui.range_slider(start=1, stop=10, step=0.5)
+        elif value == mo.ui.slider:
+            return mo.ui.slider(start=1, stop=10, step=0.5)
+        elif value == mo.ui.switch:
+            return mo.ui.switch()
+        elif value == mo.ui.tabs:
+            return mo.ui.tabs(
+                {
+                    "Employee #1": {
+                        "first_name": "Michael",
+                        "last_name": "Scott",
+                    },
+                    "Employee #2": {
+                        "first_name": "Dwight",
+                        "last_name": "Schrute",
+                    },
+                }
+            )
+        elif value == mo.ui.table:
+            return mo.ui.table(
+                data=[
+                    {"first_name": "Michael", "last_name": "Scott"},
+                    {"first_name": "Dwight", "last_name": "Schrute"},
+                ],
+                label="Employees",
+            )
+        elif value == mo.ui.text:
+            return mo.ui.text()
+        elif value == mo.ui.text_area:
+            return mo.ui.text_area()
+        return None
+    return (construct_element,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    def show_element(element):
+        if element is not None:
+            return mo.hstack([element], justify="center")
+    return (show_element,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    def value(element):
+        if element is not None:
+            v = (
+                element.value
+                if not isinstance(element, mo.ui.file)
+                else element.name()
+            )
+            return mo.md(
+                f"""
+                The element's current value is {mo.as_html(element.value)}
+                """
+            )
+    return (value,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __(mo):
+    def documentation(element):
+        if element is not None:
+            return mo.accordion(
+                {
+                    f"Documentation on `mo.ui.{element.__name__}`": mo.doc(
+                        element
+                    )
+                }
+            )
+    return (documentation,)
+
+#+END_SRC
+** @app.cell: Function __
+#+BEGIN_SRC python
+@app.cell
+def __():
+    import marimo as mo
+    return (mo,)
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    app.run()
+
+#+END_SRC

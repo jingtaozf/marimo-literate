@@ -1,0 +1,2874 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._utils
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/__init__.py
+:END:
+** Comment
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+#+END_SRC
+* assert_never
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.assert_never
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/assert_never.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import NoReturn
+
+#+END_SRC
+** Function assert_never
+#+BEGIN_SRC python
+def assert_never(value: NoReturn) -> NoReturn:
+    raise AssertionError(f"Unhandled value: {value} ({type(value).__name__})")
+
+#+END_SRC
+* dataclass_to_openapi
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.dataclass_to_openapi
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/dataclass_to_openapi.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import dataclasses
+import datetime
+import sys
+from collections.abc import Mapping, Sequence
+from decimal import Decimal
+from enum import Enum
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    ForwardRef,
+    List,
+    Literal,
+    Optional,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
+
+from marimo._server.models.base import to_camel_case
+
+#+END_SRC
+** Class PythonTypeToOpenAPI
+#+BEGIN_SRC python
+if sys.version_info < (3, 11):
+    from typing_extensions import NotRequired
+else:
+    from typing import NotRequired
+
+
+class PythonTypeToOpenAPI:
+    def __init__(self, name_overrides: Dict[Any, str], camel_case: bool):
+        self.name_overrides = name_overrides
+        self.camel_case = camel_case
+        self.optional_name_overrides = {
+            Optional[arg]: name for arg, name in name_overrides.items()
+        }
+
+    def convert(
+        self,
+        py_type: Any,
+        processed_classes: Dict[Any, str],
+    ) -> Dict[str, Any]:
+        """
+        Convert a Python type to an OpenAPI schema.
+
+        Returns:
+            Dict[str, Any]: The OpenAPI schema.
+        """
+        origin = get_origin(py_type)
+        optional_name_overrides = self.optional_name_overrides
+
+        if origin is Union:
+            args = get_args(py_type)
+
+            if py_type in processed_classes:
+                ref = processed_classes[py_type]
+                return {"$ref": f"#/components/schemas/{ref}"}
+            if py_type in optional_name_overrides:
+                ref = optional_name_overrides[py_type]
+                return {
+                    "$ref": f"#/components/schemas/{ref}",
+                    "nullable": True,
+                }
+
+            # Optional is a Union[None, ...]
+            if type(None) in args:
+                non_none_args = [arg for arg in args if arg is not type(None)]
+                if len(non_none_args) == 1:
+                    return {
+                        **self.convert(
+                            non_none_args[0],
+                            processed_classes,
+                        ),
+                        "nullable": True,
+                    }
+                else:
+                    return {
+                        "oneOf": _unique(
+                            [
+                                self.convert(
+                                    arg,
+                                    processed_classes,
+                                )
+                                for arg in non_none_args
+                            ]
+                        ),
+                        "nullable": True,
+                    }
+            else:
+                return {
+                    "oneOf": _unique(
+                        [
+                            self.convert(
+                                arg,
+                                processed_classes,
+                            )
+                            for arg in args
+                        ]
+                    )
+                }
+        elif origin in (list, List) or origin is Sequence:
+            (item_type,) = get_args(py_type)
+            return {
+                "type": "array",
+                "items": self.convert(item_type, processed_classes),
+            }
+        elif origin in (dict, Dict) or origin is Mapping:
+            _key_type, value_type = get_args(py_type)
+            return {
+                "type": "object",
+                "additionalProperties": self.convert(
+                    value_type, processed_classes
+                ),
+            }
+        elif origin is Literal:
+            if py_type in processed_classes:
+                ref = processed_classes[py_type]
+                return {"$ref": f"#/components/schemas/{ref}"}
+            return {"enum": list(get_args(py_type)), "type": "string"}
+        elif origin is NotRequired:
+            return self.convert(
+                get_args(py_type)[0],
+                processed_classes,
+            )
+        elif origin is tuple:
+            args = get_args(py_type)
+            if len(args) == 2 and isinstance(args[1], type(Ellipsis)):
+                return {
+                    "type": "array",
+                    "items": self.convert(args[0], processed_classes),
+                }
+            else:
+                return {
+                    "type": "array",
+                    "prefixItems": [
+                        self.convert(arg, processed_classes) for arg in args
+                    ],
+                }
+        elif is_typeddict_subclass(py_type):
+            if py_type in processed_classes:
+                ref = processed_classes[py_type]
+                return {"$ref": f"#/components/schemas/{ref}"}
+
+            properties: dict[str, Any] = {}
+            required: list[str] = []
+            annotations = py_type.__annotations__
+            for key, value in get_type_hints(py_type).items():
+                properties[to_camel_case(key) if self.camel_case else key] = (
+                    self.convert(value, processed_classes)
+                )
+                annotation = annotations[key]
+                if "NotRequired[" not in str(annotation):
+                    required.append(
+                        to_camel_case(key) if self.camel_case else key
+                    )
+
+            # Optional keys come from TypedDict(total=False)
+            optional_keys = py_type.__optional_keys__
+            # Remove any keys that are optional
+            required = [key for key in required if key not in optional_keys]
+
+            schema: Dict[str, Any] = {
+                "type": "object",
+                "properties": properties,
+            }
+            if required:
+                schema["required"] = required
+
+            schema_name = self.name_overrides.get(py_type, py_type.__name__)
+            processed_classes[py_type] = schema_name
+
+            return schema
+        elif dataclasses.is_dataclass(py_type):
+            return self.convert_dataclass(py_type, processed_classes)
+        elif py_type is Any:
+            return {}
+        elif py_type is object:
+            return {"type": "object", "additionalProperties": True}
+        elif py_type is str:
+            return {"type": "string"}
+        elif py_type is int:
+            return {"type": "integer"}
+        elif py_type is float:
+            return {"type": "number"}
+        elif py_type is bool:
+            return {"type": "boolean"}
+        elif py_type is Decimal:
+            return {"type": "number"}
+        elif py_type is bytes:
+            return {"type": "string", "format": "byte"}
+        elif py_type is datetime.date:
+            return {"type": "string", "format": "date"}
+        elif py_type is datetime.time:
+            return {"type": "string", "format": "time"}
+        elif py_type is datetime.datetime:
+            return {"type": "string", "format": "date-time"}
+        elif py_type is datetime.timedelta:
+            return {"type": "string", "format": "duration"}
+        elif py_type is None:
+            return {"type": "null"}
+        elif isinstance(py_type, type) and issubclass(py_type, Enum):
+            if py_type in processed_classes:
+                ref = processed_classes[py_type]
+                return {"$ref": f"#/components/schemas/{ref}"}
+            return {"type": "string", "enum": [e.value for e in py_type]}
+        elif isinstance(py_type, ForwardRef):
+            return {"$ref": f"#/components/schemas/{py_type.__forward_arg__}"}
+        else:
+            raise ValueError(
+                f"Unsupported type: py_type={py_type}, origin={origin}"
+            )
+
+    def convert_dataclass(
+        self,
+        cls: Type[Any],
+        processed_classes: Dict[Any, str],
+    ) -> Dict[str, Any]:
+        """Convert a dataclass to an OpenAPI schema.
+
+        Args:
+            cls (Type[Any]): The dataclass to convert.
+
+        Raises:
+            ValueError: If cls is not a dataclass.
+
+        Returns:
+            Dict[str, Any]: The OpenAPI schema.
+        """
+        if not dataclasses.is_dataclass(cls):
+            raise ValueError(f"{cls} is not a dataclass")
+
+        if cls in processed_classes:
+            return {"$ref": f"#/components/schemas/{processed_classes[cls]}"}
+
+        schema_name = self.name_overrides.get(cls, cls.__name__)
+        processed_classes[cls] = schema_name
+
+        type_hints = get_type_hints(cls)
+        fields: tuple[dataclasses.Field[Any], ...] = dataclasses.fields(cls)
+        properties: Dict[str, Dict[str, Any]] = {}
+        required: List[str] = []
+
+        for field in fields:
+            cased_field_name = (
+                to_camel_case(field.name) if self.camel_case else field.name
+            )
+            field_type = type_hints[field.name]
+            properties[cased_field_name] = self.convert(
+                field_type, processed_classes
+            )
+            if not _is_optional(field_type):
+                required.append(cased_field_name)
+
+        # Handle ClassVar that might be initialized already
+        for field_name, type_hint in type_hints.items():
+            cased_field_name = (
+                to_camel_case(field_name) if self.camel_case else field_name
+            )
+            if get_origin(type_hint) is ClassVar:
+                # Literal type
+                value = getattr(cls, field_name)
+                properties[cased_field_name] = {
+                    "type": "string",
+                    "enum": [value] if isinstance(value, str) else value,
+                }
+                required.append(cased_field_name)
+
+        schema: Dict[str, Any] = {
+            "type": "object",
+            "properties": properties,
+        }
+        if required:
+            schema["required"] = required
+
+        return schema
+
+#+END_SRC
+** Function _unique
+#+BEGIN_SRC python
+def _unique(items: list[Any]) -> list[Any]:
+    # Unique dictionaries
+    seen: set[str] = set()
+    result: list[Any] = []
+    for item in items:
+        if isinstance(item, dict):
+            key = str(item)
+            if key in seen:
+                continue
+            seen.add(key)
+        result.append(item)
+    return result
+
+#+END_SRC
+** Function _is_optional
+#+BEGIN_SRC python
+def _is_optional(field: dataclasses.Field[Any]) -> bool:
+    """
+    Check if a field is Optional
+    """
+    return (get_origin(field) is Union and type(None) in get_args(field)) or (
+        get_origin(field) is NotRequired
+    )
+
+#+END_SRC
+** Function is_typeddict_subclass
+#+BEGIN_SRC python
+def is_typeddict_subclass(cls: Any) -> bool:
+    return (
+        isinstance(cls, type)
+        and issubclass(cls, dict)
+        and hasattr(cls, "__annotations__")
+        and hasattr(cls, "__total__")
+        and isinstance(cls.__total__, bool)  # ignore
+    )
+
+#+END_SRC
+* debounce
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.debounce
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/debounce.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import time
+from functools import wraps
+from typing import Any, Callable, TypeVar, cast
+
+#+END_SRC
+** Assignment F = TypeVar("F", bound=Callable[..., None])
+#+BEGIN_SRC python
+F = TypeVar("F", bound=Callable[..., None])
+
+#+END_SRC
+** Function debounce
+#+BEGIN_SRC python
+def debounce(wait_time: float) -> Callable[[F], F]:
+    """
+    Decorator to prevent a function from being called more than once every
+    wait_time seconds.
+    """
+
+    def decorator(func: F) -> F:
+        last_called: float = 0
+
+        @wraps(func)
+        def wrapped(*args: Any, **kwargs: Any) -> None:
+            nonlocal last_called
+            current_time = time.time()
+            if current_time - last_called >= wait_time:
+                last_called = current_time
+                func(*args, **kwargs)
+
+        return cast(F, wrapped)
+
+    return decorator
+
+#+END_SRC
+* deep_merge
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.deep_merge
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/deep_merge.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any
+
+#+END_SRC
+** Function _merge_key
+#+BEGIN_SRC python
+def _merge_key(
+    original: dict[Any, Any], update: dict[Any, Any], key: str
+) -> Any:
+    # Precondition: key is in at least one of original and update
+    if key not in update:
+        # keep keys in original if they aren't in the update
+        return original[key]
+    elif key not in original:
+        # new keys in update get added to original
+        return update[key]
+    elif isinstance(original[key], dict) and isinstance(update[key], dict):
+        # both dicts, so recurse
+        return deep_merge(original[key], update[key])
+    else:
+        # key is present in both original and update, but values are not
+        # both dicts; just take the update value.
+        return update[key]
+
+#+END_SRC
+** Function deep_merge
+#+BEGIN_SRC python
+def deep_merge(
+    original: dict[Any, Any], update: dict[Any, Any]
+) -> dict[Any, Any]:
+    """Deep merge of two dicts."""
+    return {
+        key: _merge_key(original, update, key)
+        for key in set(original.keys()).union(set(update.keys()))
+    }
+
+#+END_SRC
+* deprecated
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.deprecated
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/deprecated.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import functools
+import warnings
+from typing import Any, Callable
+
+#+END_SRC
+** Function deprecated
+#+BEGIN_SRC python
+def deprecated(reason: str) -> Callable[[Any], Any]:
+    """A decorator that emits a deprecation warning."""
+
+    def decorator(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Callable[[Any], Any]:
+            # stacklevel=2 shows the line number in the call site
+            warnings.warn(
+                message=reason,
+                category=DeprecationWarning,
+                stacklevel=2,
+            )
+            return func(*args, **kwargs)  # type: ignore[no-any-return]
+
+        return wrapper
+
+    return decorator
+
+#+END_SRC
+* disposable
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.disposable
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/disposable.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from typing import Callable
+
+#+END_SRC
+** Class Disposable
+#+BEGIN_SRC python
+class Disposable:
+    def __init__(self, action: Callable[[], None]) -> None:
+        self.action = action
+        self._is_disposed = False
+
+    def __call__(self) -> None:
+        return self.dispose()
+
+    def dispose(self) -> None:
+        self.action()
+        self._is_disposed = True
+
+    def is_disposed(self) -> bool:
+        return self._is_disposed
+
+    @staticmethod
+    def empty() -> "Disposable":
+        return Disposable(lambda: None)
+
+#+END_SRC
+* distributor
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.distributor
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/distributor.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import asyncio
+import threading
+import time
+from typing import TYPE_CHECKING, Callable, Generic, TypeVar, Union
+
+from marimo import _loggers
+from marimo._utils.disposable import Disposable
+from marimo._utils.typed_connection import TypedConnection
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    import queue
+
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Assignment T = TypeVar("T")
+#+BEGIN_SRC python
+T = TypeVar("T")
+
+#+END_SRC
+** Assignment Consumer = Callable[[T], None]
+#+BEGIN_SRC python
+Consumer = Callable[[T], None]
+
+#+END_SRC
+** Class ConnectionDistributor
+#+BEGIN_SRC python
+class ConnectionDistributor(Generic[T]):
+    """
+    Used to distribute the response of a multiprocessing Connection to multiple
+    consumers.
+
+    This also handles adding and removing new consumers.
+
+    NOTE: This class uses the `add_reader()` API, which requires the
+    SelectorEventLoop to be used on Windows, not the default ProactorEventLoop.
+    See
+
+    https://bugs.python.org/issue37373#:~:text=On%20Windows%20there%20are%20two,subprocesses%20and%20generally%20lower%20scalability.
+
+    for context.
+    """
+
+    def __init__(self, input_connection: TypedConnection[T]) -> None:
+        self.consumers: list[Consumer[T]] = []
+        self.input_connection = input_connection
+
+    def add_consumer(self, consumer: Consumer[T]) -> Disposable:
+        """Add a consumer to the distributor."""
+        self.consumers.append(consumer)
+
+        def _remove() -> None:
+            if consumer in self.consumers:
+                self.consumers.remove(consumer)
+
+        return Disposable(_remove)
+
+    def _on_change(self) -> None:
+        """Distribute the response to all consumers."""
+        retry_sleep_seconds = 0.001
+        while self.input_connection.poll():
+            try:
+                # TODO: just recv_bytes (and change stream to send_bytes)
+                # to eliminate pickling overhead/bugs
+                response = self.input_connection.recv()
+            except BlockingIOError as e:
+                # recv() sporadically fails with EAGAIN, EDEADLK ...
+                LOGGER.warning(
+                    "BlockingIOError in distributor receive: %s", str(e)
+                )
+                time.sleep(retry_sleep_seconds)
+                continue
+            except (EOFError, StopIteration):
+                break
+            for consumer in self.consumers:
+                consumer(response)
+
+    def start(self) -> Disposable:
+        """Start distributing the response."""
+        asyncio.get_event_loop().add_reader(
+            self.input_connection.fileno(), self._on_change
+        )
+        return Disposable(self.stop)
+
+    def stop(self) -> None:
+        """Stop distributing the response."""
+        asyncio.get_event_loop().remove_reader(self.input_connection.fileno())
+        if not self.input_connection.closed:
+            self.input_connection.close()
+        self.consumers.clear()
+
+    def flush(self) -> None:
+        """Flush the distributor."""
+        while self.input_connection.poll():
+            try:
+                self.input_connection.recv()
+            except EOFError:
+                break
+
+#+END_SRC
+** Class QueueDistributor
+#+BEGIN_SRC python
+class QueueDistributor(Generic[T]):
+    def __init__(self, queue: queue.Queue[Union[T, None]]) -> None:
+        self.consumers: list[Consumer[T]] = []
+        # distributor uses None as a signal to stop
+        self.queue = queue
+        self.thread: threading.Thread | None = None
+        self._stop = False
+        # protects the consumers list
+        self._lock = threading.Lock()
+
+    def add_consumer(self, consumer: Consumer[T]) -> Disposable:
+        """Add a consumer to the distributor."""
+        with self._lock:
+            self.consumers.append(consumer)
+
+        def _remove() -> None:
+            with self._lock:
+                if consumer in self.consumers:
+                    self.consumers.remove(consumer)
+
+        return Disposable(_remove)
+
+    def _loop(self) -> None:
+        while not self._stop:
+            msg = self.queue.get()
+            if msg is None:
+                break
+
+            with self._lock:
+                for consumer in self.consumers:
+                    consumer(msg)
+
+    def start(self) -> threading.Thread:
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+        return self.thread
+
+    def stop(self) -> None:
+        self.queue.put_nowait(None)
+
+    def flush(self) -> None:
+        """Flush the distributor."""
+        pass
+
+#+END_SRC
+* exiting
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.exiting
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/exiting.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import atexit
+from dataclasses import dataclass
+
+#+END_SRC
+** @dataclass: Class Exiting
+#+BEGIN_SRC python
+@dataclass
+class Exiting:
+    value: bool = False
+
+#+END_SRC
+** Assignment _PYTHON_EXITING = Exiting()
+#+BEGIN_SRC python
+_PYTHON_EXITING = Exiting()
+
+#+END_SRC
+** Function python_exiting
+#+BEGIN_SRC python
+# bind the global _PYTHON_EXITING to ensure it still exists
+# at Python destruction time; for graceful exits when running as a script
+def python_exiting(_exiting: Exiting = _PYTHON_EXITING) -> bool:
+    return _exiting.value
+
+#+END_SRC
+** Function _exit
+#+BEGIN_SRC python
+def _exit() -> None:
+    _PYTHON_EXITING.value = True
+
+#+END_SRC
+** Call atexit.register(_exit)
+#+BEGIN_SRC python
+atexit.register(_exit)
+
+#+END_SRC
+* file_watcher
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.file_watcher
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/file_watcher.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import asyncio
+import os
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any, Callable, Coroutine, Optional
+
+from marimo._ast.app import LOGGER
+from marimo._dependencies.dependencies import DependencyManager
+
+#+END_SRC
+** Assignment Callback = Callable[[Path], Coroutine[None, None, None]]
+#+BEGIN_SRC python
+Callback = Callable[[Path], Coroutine[None, None, None]]
+
+#+END_SRC
+** Class FileWatcher
+#+BEGIN_SRC python
+class FileWatcher(ABC):
+    @staticmethod
+    def create(path: Path, callback: Callback) -> "FileWatcher":
+        if DependencyManager.watchdog.has():
+            LOGGER.debug("Using watchdog file watcher")
+            return _create_watchdog(path, callback, asyncio.get_event_loop())
+        else:
+            LOGGER.warning(
+                "watchdog is not installed, using polling file watcher"
+            )
+            return PollingFileWatcher(path, callback, asyncio.get_event_loop())
+
+    def __init__(
+        self,
+        path: Path,
+        callback: Callback,
+    ):
+        self.path = path
+        self.callback = callback
+
+    async def on_file_changed(self) -> None:
+        LOGGER.debug(f"File at {self.path} was modified.")
+        await self.callback(self.path)
+
+    @abstractmethod
+    def start(self) -> None:
+        pass
+
+    @abstractmethod
+    def stop(self) -> None:
+        pass
+
+#+END_SRC
+** Class PollingFileWatcher
+#+BEGIN_SRC python
+class PollingFileWatcher(FileWatcher):
+    POLL_SECONDS = 1.0  # Poll every 1s
+
+    def __init__(
+        self,
+        path: Path,
+        callback: Callback,
+        loop: asyncio.AbstractEventLoop,
+    ):
+        super().__init__(path, callback)
+        self._running = False
+        self.loop = loop
+        self.last_modified: Optional[float] = None
+
+    def start(self) -> None:
+        self._running = True
+        self.loop.create_task(self._poll())
+
+    def stop(self) -> None:
+        self._running = False
+
+    async def _poll(self) -> None:
+        while self._running:
+            if not os.path.exists(self.path):
+                LOGGER.warning(f"File at {self.path} does not exist.")
+                raise FileNotFoundError(f"File at {self.path} does not exist.")
+
+            # Check for file changes
+            modified = os.path.getmtime(self.path)
+            if self.last_modified is None:
+                self.last_modified = modified
+            elif modified != self.last_modified:
+                self.last_modified = modified
+                await self.on_file_changed()
+            await asyncio.sleep(self.POLL_SECONDS)
+
+#+END_SRC
+** Function _create_watchdog
+#+BEGIN_SRC python
+def _create_watchdog(
+    path: Path, callback: Callback, loop: asyncio.AbstractEventLoop
+) -> FileWatcher:
+    import watchdog.events  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+    import watchdog.observers  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+    class WatchdogFileWatcher(FileWatcher):
+        def __init__(
+            self,
+            path: Path,
+            callback: Callback,
+            loop: asyncio.AbstractEventLoop,
+        ):
+            super().__init__(path, callback)
+            self.loop = loop
+            self.observer = watchdog.observers.Observer()
+
+        def on_modified(self, event: Any) -> None:
+            del event
+            self.loop.create_task(self.on_file_changed())
+
+        def start(self) -> None:
+            event_handler = watchdog.events.PatternMatchingEventHandler(  # type: ignore # noqa: E501
+                patterns=[str(self.path)]
+            )
+            event_handler.on_modified = self.on_modified  # type: ignore
+            self.observer.schedule(  # type: ignore
+                event_handler,
+                str(self.path.parent),
+                recursive=False,
+            )
+            self.observer.start()  # type: ignore
+
+        def stop(self) -> None:
+            self.observer.stop()  # type: ignore
+            self.observer.join()
+
+    return WatchdogFileWatcher(path, callback, loop)
+
+#+END_SRC
+* Flatten and repack nested structures of lists, tuples, and dicts
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.flatten
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/flatten.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""Flatten and repack nested structures of lists, tuples, and dicts
+
+Adapted from https://github.com/ericmjl/pyflatten/tree/master; changed
+to handle generic leaf data types and minimize recursion stack depth.
+
+TODO(akshayka): if this becomes a bottleneck, use a library like dm-tree
+(this implementation will be slow large structures); as of writing,
+installation of dm-tree on macOS is buggy
+"""
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+from __future__ import annotations
+
+import itertools
+from typing import Any, Callable, Dict, List, Tuple, Type, Union
+
+#+END_SRC
+** Assignment STRUCT_TYPE = Union[Tuple[Any, ...], List[Any], Dict[Any, Any]]
+#+BEGIN_SRC python
+STRUCT_TYPE = Union[Tuple[Any, ...], List[Any], Dict[Any, Any]]
+
+#+END_SRC
+** Assignment UNFLATTEN_TYPE = Callable[[List[Any]], Union[STRUCT_TYPE, Any]]
+#+BEGIN_SRC python
+UNFLATTEN_TYPE = Callable[[List[Any]], Union[STRUCT_TYPE, Any]]
+
+#+END_SRC
+** Assignment FLATTEN_RET_TYPE = Tuple[List[Any], UNFLATTEN_TYPE]
+#+BEGIN_SRC python
+FLATTEN_RET_TYPE = Tuple[List[Any], UNFLATTEN_TYPE]
+
+#+END_SRC
+** Class CyclicStructureError
+#+BEGIN_SRC python
+class CyclicStructureError(Exception):
+    pass
+
+#+END_SRC
+** Function _is_leaf
+#+BEGIN_SRC python
+def _is_leaf(obj: Any) -> bool:
+    return not isinstance(obj, (list, tuple, dict))
+
+#+END_SRC
+** Function _flatten_sequence
+#+BEGIN_SRC python
+def _flatten_sequence(
+    value: list[Any] | tuple[Any, ...], json_compat_keys: bool, seen: set[int]
+) -> FLATTEN_RET_TYPE:
+    """Flatten a sequence of values"""
+    base_type: Type[List[Any]] | Type[Tuple[Any, ...]]
+    if isinstance(value, list):
+        base_type = list
+    elif isinstance(value, tuple):
+        base_type = tuple
+    else:
+        raise ValueError("value is not a list or tuple: ", value)
+
+    # Algorithm:
+    #
+    # Accumulate a list of flattened pieces and unflattener functions,
+    # one for each chunk of value.
+    #
+    # A chunk is one of the following:
+    #  1 a sequence (possibly empty) of leaves
+    #  2 a nested structure
+    #
+    # Chunks of type 1 are a base case
+    # Chunks of type 2 are recursed on using flatten
+    #
+    # Implementing chunks of type 1 as a base case significantly decreases
+    # the recursion stack depth compared to the reference implementation
+    if not value:
+        # unflattener returns an empty tuple or empty list
+        return [], lambda _: base_type()
+
+    lengths = []
+    flattened_pieces: list[list[Any]] = []
+    unflatteners: list[UNFLATTEN_TYPE] = []
+    i = 0
+    while i < len(value):
+        if _is_leaf(value[i]):
+            # process a chunk of type 1: a sequence of leaves
+            lengths.append(0)
+            flattened_pieces.append([])
+            while i < len(value) and _is_leaf(value[i]):
+                flattened_pieces[-1].append(value[i])
+                lengths[-1] += 1
+                i += 1
+            unflatteners.append(lambda x: x)
+        # if we haven't exhausted the sequence, then we've hit a value that
+        # is not a leaf
+        if i < len(value):
+            assert not _is_leaf(value[i])
+            flattened, u = _flatten(value[i], json_compat_keys, seen)
+            lengths.append(len(flattened))
+            flattened_pieces.append(flattened)
+
+            # u=u forces Python to bind the unflattener function u
+            # to the lambda; without that (if u were just closed
+            # over) every element of unflatteners would point to the last
+            # u because of Python's late-binding
+            def uprime(v: list[Any], u: UNFLATTEN_TYPE = u) -> STRUCT_TYPE:
+                return [u(v)]
+
+            unflatteners.append(uprime)
+        i += 1
+
+    def unflatten(vector: list[Any]) -> STRUCT_TYPE:
+        unflattened_pieces = []
+        pointer = 0
+        # How unflattening works
+        #
+        # consecutive leaves (e.g., 1, 2) are unflattened as
+        #   [leaves ...] ([1, 2])
+        #
+        # non-leaves (e.g., {1: 2}, or [1, 2]) are unflattened as
+        #  [[structure]] ([{1: 2}] or [[1, 2]])
+        #
+        # we chain the unflattened pieces together to pack them according to
+        # the structure of value
+        for unflattener, length in zip(unflatteners, lengths):
+            unflattened_pieces.append(
+                unflattener(vector[pointer : pointer + length])
+            )
+            pointer += length
+        if isinstance(value, tuple):
+            return tuple(itertools.chain(*unflattened_pieces))
+        elif isinstance(value, list):
+            return list(itertools.chain(*unflattened_pieces))
+        else:
+            raise ValueError("Invalid type of value ", type(value))
+
+    return (
+        list(itertools.chain(*flattened_pieces)),
+        unflatten,
+    )
+
+#+END_SRC
+** Function _flatten
+#+BEGIN_SRC python
+def _flatten(
+    value: Any, json_compat_keys: bool, seen: set[int]
+) -> FLATTEN_RET_TYPE:
+    # Track ids of structures to make sure that the tree has a finite height,
+    # ie, to make sure that no structure contains itself.
+    value_id = id(value)
+    if isinstance(value, (tuple, list, dict)):
+        if value_id in seen:
+            raise CyclicStructureError("already seen ", value)
+
+    if isinstance(value, (tuple, list)):
+        seen.add(value_id)
+        ret = _flatten_sequence(value, json_compat_keys, seen)
+        seen.remove(value_id)
+        return ret
+    elif isinstance(value, dict):
+        if not value:
+            return [], lambda _: {}
+
+        seen.add(value_id)
+        flattened = []
+        unflatteners = []
+        lengths = []
+        keys = []
+        for k, v in value.items():
+            curr_flattened, curr_unflatten = _flatten(
+                v, json_compat_keys, seen
+            )
+            flattened.append(curr_flattened)
+            unflatteners.append(curr_unflatten)
+            lengths.append(len(curr_flattened))
+            if json_compat_keys and not (
+                isinstance(k, (str, int, float, bool)) or k is None
+            ):
+                keys.append(str(k))
+            else:
+                keys.append(k)
+        seen.remove(value_id)
+
+        def unflatten(vector: list[Any]) -> STRUCT_TYPE:
+            pointer = 0
+            d = {}
+            for key, unflattener, length in zip(keys, unflatteners, lengths):
+                piece = vector[pointer : pointer + length]
+                d[key] = unflattener(piece)
+                pointer += length
+            return d
+
+        return list(itertools.chain(*flattened)), unflatten
+    else:
+        return [value], lambda x: x[0]
+
+#+END_SRC
+** Function flatten
+#+BEGIN_SRC python
+def flatten(value: Any, json_compat_keys: bool = False) -> FLATTEN_RET_TYPE:
+    """Flatten a nested structure.
+
+    Returns the structure flattened and a repacking function.
+
+    Replacing function expects a flat list of the same length as
+    the flattened structure.
+
+    Usage:
+
+    ```python
+    value = [1, [2, 3], {"4": [5, 6]}, []]
+    flattened, unflattener = flatten(value)
+    # apply a map or other processing to each value of flattened ...
+    # ...
+    # packed_as_value has same nesting structure as value
+    packed_as_value = unflattener(processed_flattened)
+    ```
+
+    Args:
+    ----
+    value: nested structure of lists, tuples, and dicts
+    json_compat_keys: if True, unflattener will stringify dict keys when
+      keys are not JSON compatible
+
+    Returns:
+    -------
+    flattened_value, unflattener function
+
+    Raises:
+    ------
+    CyclicStructureError: If the structure has a cyclic nesting pattern,
+        such as a list that contains itself
+    """
+    flattened, u = _flatten(value, json_compat_keys, seen=set())
+
+    def unflatten_with_validation(vector: list[Any]) -> STRUCT_TYPE:
+        if type(vector) != list:  # noqa: E721
+            raise ValueError(
+                "unflatten function requires a list as input, "
+                + f" but got {type(list)}"
+            )
+        elif len(vector) != len(flattened):
+            raise ValueError(
+                f"Length of unflatten's input must be {len(flattened)}, "
+                + f"but got {len(vector)}"
+            )
+        return u(vector)
+
+    return flattened, unflatten_with_validation
+
+#+END_SRC
+** Function contains_instance
+#+BEGIN_SRC python
+def contains_instance(value: Any, instance: Any) -> bool:
+    """
+    Recursively checks if value contains the given instance
+    """
+
+    seen: set[int] = set()
+
+    def _contains_instance(value: Any) -> bool:
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+
+        if isinstance(value, (tuple, list)):
+            return any(_contains_instance(v) for v in value)
+        elif isinstance(value, dict):
+            return any(_contains_instance(v) for v in value.values())
+        else:
+            return isinstance(value, instance)
+
+    return _contains_instance(value)
+
+#+END_SRC
+* format_signature
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.format_signature
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/format_signature.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import textwrap
+
+#+END_SRC
+** Function format_signature
+#+BEGIN_SRC python
+def format_signature(prefix: str, signature_text: str, width: int = 39) -> str:
+    black_installed = False
+    try:
+        import black
+
+        black_installed = True
+    except ModuleNotFoundError:
+        pass
+
+    if (
+        black_installed
+        and prefix.startswith("class")
+        or prefix.startswith("def")
+    ):
+        # Coarse try-except because we're using internal black APIs;
+        # many other well-established projects use these APIs, which
+        # gives us at least a small amount of confidence in our use.
+        try:
+            mode = black.Mode(line_length=width)  # type: ignore[attr-defined]
+            # use "def " instead of class, since Jedi's class "signature" is
+            # not actually valid syntax --- it's the init signature ...
+            formatted = black.format_str(
+                "def " + signature_text + ": ...", mode=mode
+            )
+            # replace "def " with actual prefix
+            formatted = prefix + formatted[4:]
+            # remove ":\n"...\n", which was inserted to make signature have
+            # valid syntax
+            return ("\n".join(formatted.split("\n")[:-2]))[:-1]
+        except Exception:
+            pass
+
+    return "\n  ".join(
+        textwrap.wrap(
+            # Make type-annotated arguments one word, so they
+            # aren't broken by the wrapping
+            prefix + signature_text.replace(": ", ":"),
+            width=width,
+            break_long_words=False,
+        )
+        # Re-expand type annotations
+    ).replace(":", ": ")
+
+#+END_SRC
+* formatter
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.formatter
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/formatter.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import subprocess
+import sys
+from typing import Dict
+
+from marimo import _loggers
+from marimo._ast.cell import CellId_t
+from marimo._dependencies.dependencies import DependencyManager
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Assignment CellCodes = Dict[CellId_t, str]
+#+BEGIN_SRC python
+CellCodes = Dict[CellId_t, str]
+
+#+END_SRC
+** Class Formatter
+#+BEGIN_SRC python
+class Formatter:
+    def __init__(self, line_length: int) -> None:
+        self.data = None
+        self.line_length = line_length
+
+    def format(self, codes: CellCodes) -> CellCodes:
+        return codes
+
+#+END_SRC
+** Class DefaultFormatter
+#+BEGIN_SRC python
+class DefaultFormatter(Formatter):
+    """
+    Tries ruff, then black, then no formatting.
+    """
+
+    def format(self, codes: CellCodes) -> CellCodes:
+        if DependencyManager.ruff.has():
+            return RuffFormatter(self.line_length).format(codes)
+        elif DependencyManager.black.has():
+            return BlackFormatter(self.line_length).format(codes)
+        else:
+            LOGGER.warning(
+                "To enable code formatting, install ruff (pip install ruff) "
+                "or black (pip install black)"
+            )
+            return {}
+
+#+END_SRC
+** Class RuffFormatter
+#+BEGIN_SRC python
+class RuffFormatter(Formatter):
+    def format(self, codes: CellCodes) -> CellCodes:
+        ruff_cmd = [sys.executable, "-m", "ruff"]
+        process = subprocess.run([*ruff_cmd, "--help"], capture_output=True)
+        if process.returncode != 0:
+            LOGGER.warning(
+                "To enable code formatting, install ruff (pip install ruff)"
+            )
+            return {}
+
+        formatted_codes: CellCodes = {}
+        for key, code in codes.items():
+            try:
+                process = subprocess.run(
+                    [
+                        *ruff_cmd,
+                        "format",
+                        "--line-length",
+                        str(self.line_length),
+                        "-",
+                    ],
+                    input=code.encode(),
+                    capture_output=True,
+                    check=True,
+                )
+                if process.returncode != 0:
+                    raise FormatError("Failed to format code with ruff")
+
+                formatted = process.stdout.decode()
+                formatted_codes[key] = formatted.strip()
+            except Exception as e:
+                LOGGER.error("Failed to format code with ruff")
+                LOGGER.debug(e)
+                continue
+
+        return formatted_codes
+
+#+END_SRC
+** Class BlackFormatter
+#+BEGIN_SRC python
+class BlackFormatter(Formatter):
+    def format(self, codes: CellCodes) -> CellCodes:
+        try:
+            import black
+        except ModuleNotFoundError:
+            LOGGER.warning(
+                "To enable code formatting, install ruff (pip install ruff) "
+                "or black (pip install black)"
+            )
+            return {}
+
+        formatted_codes: CellCodes = {}
+        for key, code in codes.items():
+            try:
+                mode = black.Mode(line_length=self.line_length)  # type: ignore
+                formatted = black.format_str(code, mode=mode)
+                formatted_codes[key] = formatted.strip()
+            except Exception:
+                formatted_codes[key] = code
+
+        return formatted_codes
+
+#+END_SRC
+** Class FormatError
+#+BEGIN_SRC python
+class FormatError(Exception):
+    pass
+
+#+END_SRC
+* health
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.health
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/health.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import importlib.metadata
+import subprocess
+import sys
+from typing import Optional
+
+#+END_SRC
+** Function get_node_version
+#+BEGIN_SRC python
+def get_node_version() -> Optional[str]:
+    try:
+        process = subprocess.Popen(
+            ["node", "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = process.communicate()
+        if stderr:
+            return None
+        return stdout.strip().split()[-1]
+    except FileNotFoundError:
+        return None
+
+#+END_SRC
+** Function get_required_modules_list
+#+BEGIN_SRC python
+def get_required_modules_list() -> dict[str, str]:
+    packages = [
+        "click",
+        "docutils",
+        "itsdangerous",
+        "jedi",
+        "markdown",
+        "narwhals",
+        "packaging",
+        "psutil",
+        "pygments",
+        "pymdown-extensions",
+        "pyyaml",
+        "ruff",
+        "starlette",
+        "tomlkit",
+        "typing-extensions",
+        "uvicorn",
+        "websockets",
+    ]
+    return _get_versions(packages, include_missing=True)
+
+#+END_SRC
+** Function get_optional_modules_list
+#+BEGIN_SRC python
+def get_optional_modules_list() -> dict[str, str]:
+    # List of common libraries we integrate with
+    packages = [
+        "altair",
+        "anywidget",
+        "duckdb",
+        "ibis-framework",
+        "opentelemetry",
+        "pandas",
+        "polars",
+        "pyarrow",
+    ]
+    return _get_versions(packages, include_missing=False)
+
+#+END_SRC
+** Function _get_versions
+#+BEGIN_SRC python
+def _get_versions(
+    packages: list[str], include_missing: bool
+) -> dict[str, str]:
+    package_versions: dict[str, str] = {}
+    # Consider listing all installed modules and their versions
+    # Submodules and private modules are can be filtered with:
+    #  if not ("." in m or m.startswith("_")):
+    for package in packages:
+        try:
+            package_versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            if include_missing:
+                package_versions[package] = "missing"
+
+    return package_versions
+
+#+END_SRC
+** Function get_chrome_version
+#+BEGIN_SRC python
+def get_chrome_version() -> Optional[str]:
+    def get_chrome_version_windows() -> Optional[str]:
+        process = subprocess.Popen(
+            [
+                "reg",
+                "query",
+                "HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon",
+                "/v",
+                "version",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = process.communicate()
+        if stderr:
+            return None
+        return stdout.strip().split()[-1]
+
+    def get_chrome_version_mac() -> Optional[str]:
+        process = subprocess.Popen(
+            [
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "--version",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = process.communicate()
+        if stderr:
+            return None
+        return stdout.strip().split()[-1]
+
+    def get_chrome_version_linux() -> Optional[str]:
+        process = subprocess.Popen(
+            ["google-chrome", "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = process.communicate()
+        if stderr:
+            return None
+        return stdout.strip().split()[-1]
+
+    try:
+        if sys.platform.startswith("win32"):
+            return get_chrome_version_windows()
+        elif sys.platform.startswith("darwin"):
+            return get_chrome_version_mac()
+        elif sys.platform.startswith("linux"):
+            return get_chrome_version_linux()
+        else:
+            return None
+    except FileNotFoundError:
+        return None
+
+#+END_SRC
+** Function get_python_version
+#+BEGIN_SRC python
+def get_python_version() -> str:
+    return sys.version.split()[0]
+
+#+END_SRC
+* log_formatter
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.log_formatter
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/log_formatter.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+# Adapted from tornado.log (Apache 2.0 License)
+from __future__ import annotations
+
+import logging
+import logging.handlers
+import sys
+from typing import Any, Dict, cast
+
+#+END_SRC
+** Function _stderr_supports_color
+#+BEGIN_SRC python
+try:
+    import curses
+except ImportError:
+    curses = None  # type: ignore
+
+
+def _stderr_supports_color() -> bool:
+    try:
+        if hasattr(sys.stderr, "isatty") and sys.stderr.isatty():
+            if curses:
+                curses.setupterm()  # type: ignore[attr-defined,unused-ignore] # noqa: E501
+                if curses.tigetnum("colors") > 0:  # type: ignore[attr-defined,unused-ignore] # noqa: E501
+                    return True
+    except Exception:
+        # Very broad exception handling because it's always better to
+        # fall back to non-colored logs than to break at startup.
+        pass
+    return False
+
+#+END_SRC
+** Class LogFormatter
+#+BEGIN_SRC python
+class LogFormatter(logging.Formatter):
+    """Log formatter used in Tornado.
+
+    Key features of this formatter are:
+
+    * Color support when logging to a terminal that supports it.
+    * Timestamps on every log line.
+    * Robust against str/bytes encoding problems.
+
+    Color support on Windows versions that do not support ANSI color codes is
+    enabled by use of the colorama__ library. Applications that wish to use
+    this must first initialize colorama with a call to ``colorama.init``.
+    See the colorama documentation for details.
+
+    __ https://pypi.python.org/pypi/colorama
+
+    .. versionchanged:: 4.5
+       Added support for ``colorama``. Changed the constructor
+       signature to be compatible with `logging.config.dictConfig`.
+    """
+
+    DEFAULT_FORMAT = "%(color)s[%(levelname)1.1s %(asctime)s %(module)s:%(lineno)d]%(end_color)s %(message)s"  # noqa: E501
+    DEFAULT_DATE_FORMAT = "%y%m%d %H:%M:%S"
+    DEFAULT_COLORS = {
+        logging.DEBUG: 4,  # Blue
+        logging.INFO: 2,  # Green
+        logging.WARNING: 3,  # Yellow
+        logging.ERROR: 1,  # Red
+        logging.CRITICAL: 5,  # Magenta
+    }
+
+    def __init__(
+        self,
+        fmt: str = DEFAULT_FORMAT,
+        datefmt: str = DEFAULT_DATE_FORMAT,
+        style: str = "%",
+        color: bool = True,
+        colors: Dict[int, int] = DEFAULT_COLORS,
+    ) -> None:
+        r"""
+        :arg bool color: Enables color support.
+        :arg str fmt: Log message format.
+          It will be applied to the attributes dict of log records. The
+          text between ``%(color)s`` and ``%(end_color)s`` will be colored
+          depending on the level if color support is on.
+        :arg dict colors: color mappings from logging level to terminal color
+          code
+        :arg str datefmt: Datetime format.
+          Used for formatting ``(asctime)`` placeholder in ``prefix_fmt``.
+
+        .. versionchanged:: 3.2
+
+           Added ``fmt`` and ``datefmt`` arguments.
+        """
+        del style
+        logging.Formatter.__init__(self, datefmt=datefmt)
+        self._fmt = fmt
+
+        self._colors = {}  # type: Dict[int, str]
+        if color and _stderr_supports_color():
+            if curses is not None:
+                fg_color = (
+                    curses.tigetstr("setaf") or curses.tigetstr("setf") or b""  # type: ignore[attr-defined,unused-ignore] # noqa: E501
+                )
+
+                for levelno, code in colors.items():
+                    # Convert the terminal control characters from
+                    # bytes to unicode strings for easier use with the
+                    # logging module.
+                    self._colors[levelno] = str(
+                        curses.tparm(fg_color, code),
+                        "ascii",  # type: ignore[attr-defined,unused-ignore] # noqa: E501
+                    )
+                normal = curses.tigetstr("sgr0")  # type: ignore[attr-defined,unused-ignore] # noqa: E501
+                if normal is not None:
+                    self._normal = str(normal, "ascii")
+                else:
+                    self._normal = ""
+            else:
+                # If curses is not present (currently we'll only get here for
+                # colorama on windows), assume hard-coded ANSI color codes.
+                for levelno, code in colors.items():
+                    self._colors[levelno] = "\033[2;3%dm" % code
+                self._normal = "\033[0m"
+        else:
+            self._normal = ""
+
+    def format(self, record: Any) -> str | Any:
+        try:
+            message = record.getMessage()
+            assert isinstance(message, str)  # guaranteed by logging
+            record.message = message
+        except Exception as e:
+            record.message = "Bad message (%r): %r" % (e, record.__dict__)
+
+        record.asctime = self.formatTime(record, cast(str, self.datefmt))
+
+        if record.levelno in self._colors:
+            record.color = self._colors[record.levelno]
+            record.end_color = self._normal
+        else:
+            record.color = record.end_color = ""
+
+        formatted = self._fmt % record.__dict__
+
+        if record.exc_info:
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            # exc_text contains multiple lines.  We need to _safe_unicode
+            # each line separately so that non-utf8 bytes don't cause
+            # all the newlines to turn into '\n'.
+            lines = [formatted.rstrip()]
+            lines.extend(str(ln) for ln in record.exc_text.split("\n"))
+            formatted = "\n".join(lines)
+        return formatted.replace("\n", "\n    ")
+
+#+END_SRC
+* marimo_path
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.marimo_path
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/marimo_path.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from pathlib import Path
+
+#+END_SRC
+** Class MarimoPath
+#+BEGIN_SRC python
+class MarimoPath:
+    """
+    Wrapper around pathlib.Path to provide additional functionality for Marimo.
+    And reduce API surface area of pathlib.Path.
+    """
+
+    def __init__(self, path: str | Path, strict: bool = False) -> None:
+        self.path: Path = Path(path)
+        # Do this on initialization to avoid issues with changing directories
+        self.cwd = Path.cwd()
+        # strict means can only operate in
+        # anything under the current working directory
+        self.strict = strict
+
+        self.validate()
+
+    def validate(self) -> None:
+        if not self.is_valid():
+            raise ValueError(
+                f"File {self.path} is not a Python or Markdown file."
+            )
+
+    @staticmethod
+    def is_valid_path(path: str | Path) -> bool:
+        try:
+            MarimoPath(path)
+            return True
+        except ValueError:
+            return False
+
+    def is_valid(self) -> bool:
+        return self.is_python() or self.is_markdown()
+
+    def is_python(self) -> bool:
+        return self.path.suffix == ".py"
+
+    def is_markdown(self) -> bool:
+        allowed = {".md", ".markdown", ".qmd"}
+        return self.path.suffix in allowed
+
+    def rename(self, new_path: Path) -> None:
+        if self.strict:
+            if not MarimoPath(new_path).is_relative_to(self.cwd):
+                raise ValueError(
+                    "Cannot rename files outside of "
+                    "the current working directory"
+                )
+
+        # Cannot rename if already exists
+        if new_path.exists():
+            raise ValueError(
+                f"Cannot rename {self.path} to {new_path}"
+                " because it already exists"
+            )
+
+        self.path.rename(new_path)
+
+    def write_text(self, data: str, encoding: str = "utf-8") -> None:
+        # By default, write as utf-8
+        self.path.write_text(data, encoding)
+
+    def read_text(self, encoding: str = "utf-8") -> str:
+        return self.path.read_text(encoding)
+
+    @property
+    def short_name(self) -> str:
+        return self.path.name
+
+    @property
+    def relative_name(self) -> str:
+        if self.strict:
+            if not self.is_relative_to(self.cwd):
+                raise ValueError(
+                    "Cannot get relative name for files outside"
+                    " of the current working directory"
+                )
+        # If can't return relative path, return absolute path
+        if not self.is_relative_to(self.cwd):
+            return str(self.path.absolute())
+        return str(self.path.relative_to(self.cwd))
+
+    def is_relative_to(self, other: Path) -> bool:
+        # In python 3.8, is_relative_to is not available
+        if not hasattr(self.path, "is_relative_to"):
+            try:
+                self.path.relative_to(other)
+                return True
+            except ValueError:
+                return False
+        return self.path.is_relative_to(other)  # type: ignore
+
+    @property
+    def absolute_name(self) -> str:
+        return str(self.path.absolute())
+
+    @property
+    def last_modified(self) -> float:
+        return self.path.stat().st_mtime
+
+    def __str__(self) -> str:
+        return str(self.path)
+
+#+END_SRC
+* memoize
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.memoize
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/memoize.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any, Callable, Tuple, TypeVar, cast
+
+#+END_SRC
+** Assignment T = TypeVar("T")
+#+BEGIN_SRC python
+T = TypeVar("T")
+
+#+END_SRC
+** Assignment sentinel = object()
+#+BEGIN_SRC python
+sentinel = object()
+
+#+END_SRC
+** Function memoize_last_value
+#+BEGIN_SRC python
+# Unique sentinel object
+
+
+def memoize_last_value(func: Callable[..., T]) -> Callable[..., T]:
+    """
+    This differs from functools.lru_cache in that is checks for
+    object identity for positional arguments instead of equality
+    which for functools requires the arguments to be hashable.
+    """
+    last_input: Tuple[Tuple[Any, ...], frozenset[Tuple[str, Any]]] = (
+        (),
+        frozenset(),
+    )
+    last_output: T = cast(T, sentinel)
+
+    def wrapper(*args: Any, **kwargs: Any) -> T:
+        nonlocal last_input, last_output
+
+        current_input: Tuple[Tuple[Any, ...], frozenset[Tuple[str, Any]]] = (
+            args,
+            frozenset(kwargs.items()),
+        )
+
+        if (
+            last_output is not sentinel
+            and len(current_input[0]) == len(last_input[0])
+            and all(
+                current_input[0][i] is last_input[0][i]
+                for i in range(len(current_input[0]))
+                if i < len(last_input[0])
+            )
+            and current_input[1] == last_input[1]
+        ):
+            assert last_output is not sentinel
+            return last_output
+
+        result: T = func(*args, **kwargs)
+
+        last_input = current_input
+        last_output = result
+
+        return result
+
+    return wrapper
+
+#+END_SRC
+* methods
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.methods
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/methods.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import inspect
+import types
+from typing import Any
+
+#+END_SRC
+** Function is_callable_method
+#+BEGIN_SRC python
+def is_callable_method(obj: Any, attr: str) -> bool:
+    if not hasattr(obj, attr):
+        return False
+
+    method = getattr(obj, attr)
+    if inspect.isclass(obj) and not isinstance(method, (types.MethodType)):
+        return False
+    return callable(method)
+
+#+END_SRC
+* narwhals_utils
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.narwhals_utils
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/narwhals_utils.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import sys
+from typing import TYPE_CHECKING, Any
+
+import narwhals.stable.v1 as nw
+
+#+END_SRC
+** Function empty_df
+#+BEGIN_SRC python
+if sys.version_info < (3, 11):
+    from typing_extensions import TypeGuard
+else:
+    from typing import TypeGuard
+
+
+if TYPE_CHECKING:
+    from narwhals.typing import IntoFrame
+
+
+def empty_df(native_df: IntoFrame) -> IntoFrame:
+    """
+    Get an empty dataframe with the same schema as the given dataframe.
+    """
+    if can_narwhalify(native_df, eager_only=True):
+        df = nw.from_native(native_df, eager_only=True)
+        return df[[]].to_native()
+    return native_df
+
+#+END_SRC
+** Function assert_narwhals_dataframe
+#+BEGIN_SRC python
+def assert_narwhals_dataframe(df: nw.DataFrame[Any]) -> None:
+    """
+    Assert that the given dataframe is a valid narwhals dataframe.
+    """
+    if not isinstance(df, nw.DataFrame):
+        raise ValueError(f"Unsupported dataframe type. Got {type(df)}")
+
+#+END_SRC
+** Function assert_narwhals_series
+#+BEGIN_SRC python
+def assert_narwhals_series(series: nw.Series) -> None:
+    """
+    Assert that the given series is a valid narwhals series.
+    """
+    if not isinstance(series, nw.Series):
+        raise ValueError(f"Unsupported series type. Got {type(series)}")
+
+#+END_SRC
+** Function can_narwhalify
+#+BEGIN_SRC python
+def can_narwhalify(obj: Any, eager_only: bool = False) -> TypeGuard[IntoFrame]:
+    """
+    Check if the given object can be narwhalified.
+    """
+    if obj is None:
+        return False
+    try:
+        nw.from_native(obj, strict=True, eager_only=eager_only)  # type: ignore[call-overload]
+        return True
+    except TypeError:
+        return False
+
+#+END_SRC
+** Function assert_can_narwhalify
+#+BEGIN_SRC python
+def assert_can_narwhalify(obj: Any) -> TypeGuard[IntoFrame]:
+    """
+    Assert that the given object can be narwhalified.
+    """
+    nw.from_native(obj)
+    return True
+
+#+END_SRC
+** Function dataframe_to_csv
+#+BEGIN_SRC python
+def dataframe_to_csv(df: IntoFrame) -> str:
+    """
+    Convert a dataframe to a CSV string.
+    """
+    assert_can_narwhalify(df)
+    df = nw.from_native(df, strict=True)
+    if isinstance(df, nw.LazyFrame):
+        return str(df.collect().write_csv())
+    if nw.get_level(df) == "interchange":
+        # `write_csv` isn't supported by interchange-level-only
+        # DataFrames, so we convert to PyArrow in this case
+        csv_str = nw.from_native(df.to_arrow(), eager_only=True).write_csv()
+    else:
+        csv_str = df.write_csv()
+    if isinstance(csv_str, bytes):
+        return csv_str.decode("utf-8")
+    return str(csv_str)
+
+#+END_SRC
+** Function is_narwhals_integer_type
+#+BEGIN_SRC python
+def is_narwhals_integer_type(
+    dtype: Any,
+) -> TypeGuard[
+    nw.Int64
+    | nw.UInt64
+    | nw.Int32
+    | nw.UInt32
+    | nw.Int16
+    | nw.UInt16
+    | nw.Int8
+    | nw.UInt8
+]:
+    """
+    Check if the given dtype is integer type.
+    """
+    return bool(
+        dtype == nw.Int64
+        or dtype == nw.UInt64
+        or dtype == nw.Int32
+        or dtype == nw.UInt32
+        or dtype == nw.Int16
+        or dtype == nw.UInt16
+        or dtype == nw.Int8
+        or dtype == nw.UInt8
+    )
+
+#+END_SRC
+** Function is_narwhals_temporal_type
+#+BEGIN_SRC python
+def is_narwhals_temporal_type(
+    dtype: Any,
+) -> TypeGuard[nw.Datetime | nw.Date | nw.Duration | nw.Duration]:
+    """
+    Check if the given dtype is temporal type.
+    """
+    return bool(
+        dtype == nw.Datetime or dtype == nw.Date or dtype == nw.Duration
+    )
+
+#+END_SRC
+** Function is_narwhals_string_type
+#+BEGIN_SRC python
+def is_narwhals_string_type(
+    dtype: Any,
+) -> TypeGuard[nw.String | nw.Categorical | nw.Enum]:
+    """
+    Check if the given dtype is string type.
+    """
+    return bool(
+        dtype == nw.String or dtype == nw.Categorical or dtype == nw.Enum
+    )
+
+#+END_SRC
+** Function unwrap_narwhals_dataframe
+#+BEGIN_SRC python
+def unwrap_narwhals_dataframe(df: Any) -> Any:
+    """
+    Unwrap a narwhals dataframe.
+    """
+    if isinstance(df, nw.DataFrame):
+        return df.to_native()  # type: ignore[return-value]
+    return df
+
+#+END_SRC
+** Function unwrap_py_scalar
+#+BEGIN_SRC python
+def unwrap_py_scalar(value: Any) -> Any:
+    """
+    Convert a narwhals value to a python scalar if possible, otherwise return
+    the value as is.
+    """
+    try:
+        return nw.to_py_scalar(value)
+    except ValueError:
+        return value
+
+#+END_SRC
+* parse_dataclass
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.parse_dataclass
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/parse_dataclass.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import dataclasses
+import json
+from enum import Enum
+from typing import (
+    Any,
+    Literal,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
+
+#+END_SRC
+** Assignment T = TypeVar("T")
+#+BEGIN_SRC python
+T = TypeVar("T")
+
+#+END_SRC
+** Function to_snake
+#+BEGIN_SRC python
+def to_snake(string: str) -> str:
+    # basic conversion of javascript camel case to snake
+    # does not handle contiguous caps
+    return "".join(
+        ["_" + i.lower() if i.isupper() else i for i in string]
+    ).lstrip("_")
+
+#+END_SRC
+** Class DataclassParser
+#+BEGIN_SRC python
+class DataclassParser:
+    def __init__(self, allow_unknown_keys: bool = False):
+        self.allow_unknown_keys = allow_unknown_keys
+
+    def _build_value(self, value: Any, cls: Type[T]) -> T:
+        # origin_cls is not None if cls is a container (such as list,
+        # tuple, set, ...)
+        origin_cls = get_origin(cls)
+        if origin_cls is Optional:
+            (arg_type,) = get_args(cls)
+            if value is None:
+                return None  # type: ignore[return-value]
+            else:
+                return self._build_value(value, arg_type)  # type: ignore # noqa: E501
+        elif origin_cls in (list, set):
+            (arg_type,) = get_args(cls)
+            return origin_cls(self._build_value(v, arg_type) for v in value)  # type: ignore # noqa: E501
+        elif origin_cls is tuple:
+            arg_types = get_args(cls)
+            if len(arg_types) == 2 and isinstance(
+                arg_types[1], type(Ellipsis)
+            ):
+                return origin_cls(  # type: ignore
+                    self._build_value(v, arg_types[0]) for v in value
+                )
+            else:
+                return origin_cls(  # type: ignore # noqa: E501
+                    self._build_value(v, t) for v, t in zip(value, arg_types)
+                )
+        elif origin_cls is dict:
+            key_type, value_type = get_args(cls)
+            return origin_cls(  # type: ignore[no-any-return]
+                **{
+                    self._build_value(k, key_type): self._build_value(
+                        v, value_type
+                    )
+                    for k, v in value.items()
+                }
+            )
+        elif origin_cls == Union:
+            arg_types = get_args(cls)
+            for arg_type in arg_types:
+                try:
+                    return self._build_value(value, arg_type)  # type: ignore # noqa: E501
+                # catch expected exceptions when conversion fails
+                except (TypeError, ValueError):
+                    continue
+                except:
+                    raise
+            raise ValueError(
+                f"Value '{value}' does not fit any type of the union"
+            )
+        elif origin_cls is Literal:
+            # if its a single Literal of an enum, we can just return the enum
+            arg_types = get_args(cls)
+            first_arg_type = arg_types[0]
+            if (
+                len(arg_types) == 1
+                and isinstance(first_arg_type, Enum)
+                and first_arg_type.value == value
+            ):
+                return first_arg_type  # type: ignore[return-value]
+            if value not in arg_types:
+                raise ValueError(
+                    f"Value '{value}' does not fit any type of the literal"
+                )
+            return value  # type: ignore[no-any-return]
+        elif type(cls) is type(Enum) and issubclass(cls, Enum):
+            return cls(value)  # type: ignore[return-value]
+        elif dataclasses.is_dataclass(cls):
+            return self.build_dataclass(value, cls)  # type: ignore[return-value]
+        else:
+            return value  # type: ignore[no-any-return]
+
+    def build_dataclass(self, values: dict[Any, Any], cls: Type[T]) -> T:
+        """Returns instance of dataclass [cls] instantiated from [values]."""
+
+        if not isinstance(values, dict):
+            raise ValueError(
+                "value passed to build_dataclass needs to be a dictionary"
+            )
+
+        types = get_type_hints(cls)
+
+        snake_cased_values = {to_snake(k): v for k, v in values.items()}
+        if (
+            not self.allow_unknown_keys
+            and not snake_cased_values.keys() <= types.keys()
+        ):
+            unknown_keys = snake_cased_values.keys() - types.keys()
+            raise ValueError(
+                f"values in build_dataclass do not match arguments "
+                f"for constructor. Unknown keys: {unknown_keys}. "
+                f"Expected keys: {types.keys()}"
+            )
+
+        transformed = {
+            k: self._build_value(v, types[k])
+            for k, v in snake_cased_values.items()
+            if k in types
+        }
+
+        return cls(**transformed)
+
+#+END_SRC
+** Function parse_raw
+#+BEGIN_SRC python
+def parse_raw(
+    message: Union[bytes, dict[Any, Any]],
+    cls: Type[T],
+    allow_unknown_keys: bool = False,
+) -> T:
+    """Utility to parse a message as JSON, and instantiate into supplied type.
+
+    `cls` must be a dataclass.
+
+    Supported collection types in the dataclass:
+    - List, Tuple, Set, Dict
+    - for Python 3.8 compatibility, must use collection types from
+      the typing module (e.g., typing.List[int] instead of list[int])
+
+    Transforms all fields in the parsed JSON from camel case to snake case.
+
+    Args:
+    ----
+    message: the message to parse
+    cls: the type to instantiate
+    """
+    # If it is a dict, it is already parsed and we can just build the
+    # dataclass.
+    if isinstance(message, dict):
+        return DataclassParser(allow_unknown_keys).build_dataclass(
+            message, cls
+        )
+    parsed = json.loads(message)
+    return DataclassParser(allow_unknown_keys).build_dataclass(parsed, cls)
+
+#+END_SRC
+* paths
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.paths
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/paths.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import os
+from typing import Any
+
+#+END_SRC
+** Function import_files
+#+BEGIN_SRC python
+def import_files(filename: str) -> Any:
+    from importlib.resources import files as importlib_files
+
+    return importlib_files(filename)
+
+#+END_SRC
+** Function pretty_path
+#+BEGIN_SRC python
+def pretty_path(filename: str) -> str:
+    """
+    If it's an absolute path, shorten to relative path if
+    we don't go outside the current directory.
+    Otherwise, return the filename as is.
+    """
+    if os.path.isabs(filename):
+        try:
+            relpath = os.path.relpath(filename)
+        except ValueError:
+            # Windows: relpath doesn't work if filename is on a different drive
+            # than current drive
+            return filename
+        if not relpath.startswith(".."):
+            return relpath
+    return filename
+
+#+END_SRC
+** Function maybe_make_dirs
+#+BEGIN_SRC python
+def maybe_make_dirs(filepath: str) -> None:
+    """
+    Create directories if they don't exist.
+    """
+    dirname = os.path.dirname(filepath)
+    if dirname:
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+#+END_SRC
+* platform
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.platform
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/platform.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import sys
+
+#+END_SRC
+** Function is_windows
+#+BEGIN_SRC python
+def is_windows() -> bool:
+    return sys.platform == "win32" or sys.platform == "cygwin"
+
+#+END_SRC
+** Function is_pyodide
+#+BEGIN_SRC python
+def is_pyodide() -> bool:
+    return "pyodide" in sys.modules
+
+#+END_SRC
+* repr
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.repr
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/repr.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import Any
+
+#+END_SRC
+** Function format_repr
+#+BEGIN_SRC python
+def format_repr(obj: Any, items: dict[str, Any]) -> str:
+    """Format a repr string."""
+    kvs = [f"{k}={v}" for k, v in items.items()]
+    return f"{obj.__class__.__name__}({', '.join(kvs)})"
+
+#+END_SRC
+* rst_to_html
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.rst_to_html
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/rst_to_html.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import contextlib
+import io
+
+#+END_SRC
+** Function convert_rst_to_html
+#+BEGIN_SRC python
+def convert_rst_to_html(rst_content: str) -> str:
+    """Convert RST content to HTML."""
+
+    from docutils.core import publish_parts  # type: ignore[import-untyped]
+
+    # redirect stderr and ignore it to silence error messages
+    with contextlib.redirect_stderr(io.StringIO()) as _:
+        parts = publish_parts(
+            rst_content,
+            writer_name="html",
+            settings_overrides={
+                "warning_stream": None,
+                "file_insertion_enabled": False,
+                "report_level": 5,
+            },
+        )
+    return parts["html_body"]  # type: ignore[no-any-return]
+
+#+END_SRC
+* signals
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.signals
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/signals.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import signal
+from typing import Any
+
+#+END_SRC
+** Function restore_signals
+#+BEGIN_SRC python
+def restore_signals() -> None:
+    # Restore the system default signal handlers.
+    #
+    # The server process may register signal handlers (uvicorn does this),
+    # which we definitely don't want! Otherwise a SIGTERM to this process
+    # would be rerouted to the server.
+    #
+    # See https://github.com/tiangolo/fastapi/discussions/7442#discussioncomment-5141007  # noqa: E501
+    signal.set_wakeup_fd(-1)
+
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+#+END_SRC
+** Function get_signals
+#+BEGIN_SRC python
+def get_signals() -> dict[int, Any]:
+    return {
+        signal.SIGTERM: signal.getsignal(signal.SIGTERM),
+        signal.SIGINT: signal.getsignal(signal.SIGINT),
+    }
+
+#+END_SRC
+* tmpdir
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.tmpdir
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/tmpdir.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+import os
+import sys
+import tempfile
+
+#+END_SRC
+** Function _convert_to_long_pathname
+#+BEGIN_SRC python
+def _convert_to_long_pathname(filename: str) -> str:
+    return filename
+
+#+END_SRC
+** Function get_tmpdir
+#+BEGIN_SRC python
+if sys.platform == "win32":
+    # Adapted from IPython.core.compilerop
+    #
+    # https://github.com/ipython/ipykernel/blob/93a63fb7b8752899ed95118fa35e56f74eedd0c6/ipykernel/compiler.py  # noqa: E501
+    try:
+        import ctypes
+        from ctypes.wintypes import DWORD, LPCWSTR, LPWSTR, MAX_PATH
+
+        _GetLongPathName = ctypes.windll.kernel32.GetLongPathNameW
+        _GetLongPathName.argtypes = [LPCWSTR, LPWSTR, DWORD]
+        _GetLongPathName.restype = DWORD
+
+        def _win_convert_to_long_pathname(filename: str) -> str:
+            buf = ctypes.create_unicode_buffer(MAX_PATH)
+            rv = _GetLongPathName(filename, buf, MAX_PATH)
+            if rv != 0 and rv <= MAX_PATH:
+                filename = buf.value
+            return filename
+
+        # test that it works so if there are any issues we fail just once here
+        _win_convert_to_long_pathname(__file__)
+    except Exception:
+        pass
+    else:
+        _convert_to_long_pathname = _win_convert_to_long_pathname
+
+
+def get_tmpdir() -> str:
+    return os.path.join(
+        _convert_to_long_pathname(tempfile.gettempdir()),
+        "marimo_" + str(os.getpid()),
+    )
+
+#+END_SRC
+* typed_connection
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.typed_connection
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/typed_connection.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Generic, TypeVar
+
+#+END_SRC
+** Assignment T = TypeVar("T")
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from multiprocessing.connection import Connection
+
+T = TypeVar("T")
+
+#+END_SRC
+** Class TypedConnection
+#+BEGIN_SRC python
+class TypedConnection(Generic[T]):
+    """Wrapper around a connection with strong typing."""
+
+    def __init__(self, delegate: Connection):
+        self._delegate = delegate
+
+    @classmethod
+    def of(
+        cls,
+        delegate: Connection,
+    ) -> TypedConnection[T]:
+        """Create a typed connection from a connection."""
+        return delegate  # type: ignore[return-value]
+
+    def send(self, obj: T) -> None:
+        self._delegate.send(obj)
+
+    def recv(self) -> T:
+        return self._delegate.recv()  # type: ignore[no-any-return]
+
+    def poll(self) -> bool:
+        return self._delegate.poll()
+
+    def fileno(self) -> int:
+        return self._delegate.fileno()
+
+    @property
+    def closed(self) -> bool:
+        return self._delegate.closed
+
+    def close(self) -> None:
+        self._delegate.close()
+
+#+END_SRC
+* typing
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.typing
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/typing.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import sys
+
+#+END_SRC
+** Assignment NotRequired = _NotRequired
+#+BEGIN_SRC python
+if sys.version_info < (3, 11):
+    from typing_extensions import NotRequired as _NotRequired
+else:
+    from typing import NotRequired as _NotRequired
+
+NotRequired = _NotRequired
+
+#+END_SRC
+* Copied from `validators`: https://github.com/python-validators/validators
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.url
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/url.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""Copied from `validators`: https://github.com/python-validators/validators
+
+Don't want to include the entire package as a dependency.
+"""
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+from __future__ import annotations
+
+import re
+
+#+END_SRC
+** Assignment ip_middle_octet = r"(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5]))"
+#+BEGIN_SRC python
+ip_middle_octet = r"(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5]))"
+
+#+END_SRC
+** Assignment ip_last_octet = r"(?:\.(?:0|[1-9]\d?|1\d\d|2[0-4]\d|25[0-5]))"
+#+BEGIN_SRC python
+ip_last_octet = r"(?:\.(?:0|[1-9]\d?|1\d\d|2[0-4]\d|25[0-5]))"
+
+#+END_SRC
+** Assignment regex
+#+BEGIN_SRC python
+regex = re.compile(  # noqa: W605
+    r"^"
+    # protocol identifier
+    r"(?:(?:https?|ftp)://)"
+    # user:pass authentication
+    r"(?:[-a-z\u00a1-\uffff0-9._~%!$&'()*+,;=:]+"
+    r"(?::[-a-z0-9._~%!$&'()*+,;=:]*)?@)?"
+    r"(?:"
+    r"(?P<private_ip>"
+    # IP address exclusion
+    # private & local networks
+    r"(?:(?:10|127)" + ip_middle_octet + r"{2}" + ip_last_octet + r")|"
+    r"(?:(?:169\.254|192\.168)" + ip_middle_octet + ip_last_octet + r")|"
+    r"(?:172\.(?:1[6-9]|2\d|3[0-1])" + ip_middle_octet + ip_last_octet + r"))"
+    r"|"
+    # private & local hosts
+    r"(?P<private_host>(?:localhost))|"
+    # IP address dotted notation octets
+    # excludes loopback network 0.0.0.0
+    # excludes reserved space >= 224.0.0.0
+    # excludes network & broadcast addresses
+    # (first & last IP address of each class)
+    r"(?P<public_ip>"
+    r"(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])"
+    r"" + ip_middle_octet + r"{2}"
+    r"" + ip_last_octet + r")"
+    r"|"
+    # IPv6 RegEx from https://stackoverflow.com/a/17871737
+    r"\[("
+    # 1:2:3:4:5:6:7:8
+    r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|"
+    # 1::                              1:2:3:4:5:6:7::
+    r"([0-9a-fA-F]{1,4}:){1,7}:|"
+    # 1::8             1:2:3:4:5:6::8  1:2:3:4:5:6::8
+    r"([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|"
+    # 1::7:8           1:2:3:4:5::7:8  1:2:3:4:5::8
+    r"([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|"
+    # 1::6:7:8         1:2:3:4::6:7:8  1:2:3:4::8
+    r"([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|"
+    # 1::5:6:7:8       1:2:3::5:6:7:8  1:2:3::8
+    r"([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|"
+    # 1::4:5:6:7:8     1:2::4:5:6:7:8  1:2::8
+    r"([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|"
+    # 1::3:4:5:6:7:8   1::3:4:5:6:7:8  1::8
+    r"[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|"
+    # ::2:3:4:5:6:7:8  ::2:3:4:5:6:7:8 ::8       ::
+    r":((:[0-9a-fA-F]{1,4}){1,7}|:)|"
+    # fe80::7:8%eth0   fe80::7:8%1
+    # (link-local IPv6 addresses with zone index)
+    r"fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|"
+    r"::(ffff(:0{1,4}){0,1}:){0,1}"
+    r"((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}"
+    # ::255.255.255.255   ::ffff:255.255.255.255  ::ffff:0:255.255.255.255
+    # (IPv4-mapped IPv6 addresses and IPv4-translated addresses)
+    r"(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|"
+    r"([0-9a-fA-F]{1,4}:){1,4}:"
+    r"((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}"
+    # 2001:db8:3:4::192.0.2.33  64:ff9b::192.0.2.33
+    # (IPv4-Embedded IPv6 Address)
+    r"(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))\]|"
+    # host name
+    r"(?:(?:(?:xn--[-]{0,2})|[a-z\u00a1-\uffff\U00010000-\U0010ffff0-9]-?)*"
+    r"[a-z\u00a1-\uffff\U00010000-\U0010ffff0-9]+)"
+    # domain name
+    r"(?:\.(?:(?:xn--[-]{0,2})|[a-z\u00a1-\uffff\U00010000-\U0010ffff0-9]-?)*"
+    r"[a-z\u00a1-\uffff\U00010000-\U0010ffff0-9]+)*"
+    # TLD identifier
+    r"(?:\.(?:(?:xn--[-]{0,2}[a-z\u00a1-\uffff\U00010000-\U0010ffff0-9]{2,})|"
+    r"[a-z\u00a1-\uffff\U00010000-\U0010ffff]{2,}))"
+    r")"
+    # port number
+    r"(?::\d{2,5})?"
+    # resource path
+    r"(?:/[-a-z\u00a1-\uffff\U00010000-\U0010ffff0-9._~%!$&'()*+,;=:@/]*)?"
+    # query string
+    r"(?:\?\S*)?"
+    # fragment
+    r"(?:#\S*)?$",
+    re.UNICODE | re.IGNORECASE,
+)
+
+#+END_SRC
+** Assignment pattern = re.compile(regex)
+#+BEGIN_SRC python
+pattern = re.compile(regex)
+
+#+END_SRC
+** Function is_url
+#+BEGIN_SRC python
+def is_url(value: str, public: bool = False) -> bool:
+    """Return whether or not given value is a valid URL.
+
+    If the value is valid URL this function returns ``True``, otherwise
+    returns ``False``.
+
+    This validator is based on the wonderful `URL validator of dperini`_.
+    .. _URL validator of dperini:
+        https://gist.github.com/dperini/729294
+
+    Examples::
+        >>> url('http://foobar.dk')
+        True
+        >>> url('ftp://foobar.dk')
+        True
+        >>> url('http://10.0.0.1')
+        True
+        >>> url('http://foobar.d')
+        False
+        >>> url('http://10.0.0.1', public=True)
+        False
+
+    .. versionadded:: 0.2
+    .. versionchanged:: 0.10.2
+        Added support for various exotic URLs and fixed various false
+        positives.
+    .. versionchanged:: 0.10.3
+        Added ``public`` parameter.
+    .. versionchanged:: 0.11.0
+        Made the regular expression this function uses case insensitive.
+    .. versionchanged:: 0.11.3
+        Added support for URLs containing localhost
+
+    :param value: URL address string to validate
+    :param public: (default=False) Set True to only allow a public IP address
+    """
+    result = pattern.match(value)
+    if not public:
+        return result is not None
+
+    return result is not None and not any(
+        (result.groupdict().get(key) for key in ("private_ip", "private_host"))
+    )
+
+#+END_SRC
+* variables
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.variables
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/variables.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING, Optional
+
+#+END_SRC
+** Import statements
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from marimo._ast.cell import CellId_t
+
+
+from collections import namedtuple
+
+#+END_SRC
+** Assignment UnmagledLocal = namedtuple("UnmagledLocal", "name cell")
+#+BEGIN_SRC python
+UnmagledLocal = namedtuple("UnmagledLocal", "name cell")
+
+#+END_SRC
+** Function if_local_then_mangle
+#+BEGIN_SRC python
+def if_local_then_mangle(ref: str, cell_id: CellId_t) -> str:
+    if is_local(ref):
+        if is_mangled_local(ref):
+            return ref
+        return f"_cell_{cell_id}{ref}"
+    return ref
+
+#+END_SRC
+** Function unmangle_local
+#+BEGIN_SRC python
+def unmangle_local(name: str, cell_id: CellId_t = "") -> UnmagledLocal:
+    if not is_mangled_local(name, cell_id):
+        return UnmagledLocal(name, "")
+    private_prefix = r"^_cell_\w+?_"
+    if cell_id:
+        private_prefix = f"^_cell_{cell_id}_"
+    return UnmagledLocal(re.sub(private_prefix, "_", name), name.split("_")[2])
+
+#+END_SRC
+** Function is_mangled_local
+#+BEGIN_SRC python
+def is_mangled_local(name: str, cell_id: CellId_t = "") -> bool:
+    return name.startswith(f"_cell_{cell_id}")
+
+#+END_SRC
+** Function is_local
+#+BEGIN_SRC python
+def is_local(name: str) -> bool:
+    return name == "__" or (name.startswith("_") and not name.startswith("__"))
+
+#+END_SRC
+** Function get_cell_from_local
+#+BEGIN_SRC python
+def get_cell_from_local(
+    name: str, cell_id: CellId_t = ""
+) -> Optional[CellId_t]:
+    local = unmangle_local(if_local_then_mangle(name, cell_id)).cell
+    return local if local else None
+
+#+END_SRC
+* config
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.config
+:END:
+** config
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._utils.config.config
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_utils/config/config.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import os
+from dataclasses import asdict
+from tempfile import TemporaryDirectory
+from typing import Any, Optional, Type, TypeVar
+
+from marimo._utils.parse_dataclass import parse_raw
+
+#+END_SRC
+*** Assignment ROOT_DIR = ".marimo"
+#+BEGIN_SRC python
+ROOT_DIR = ".marimo"
+
+#+END_SRC
+*** Assignment T = TypeVar("T")
+#+BEGIN_SRC python
+T = TypeVar("T")
+
+#+END_SRC
+*** Class ConfigReader
+#+BEGIN_SRC python
+class ConfigReader:
+    """Read the configuration file."""
+
+    def __init__(self, filepath: str) -> None:
+        self.filepath = filepath
+
+    @staticmethod
+    def for_filename(filename: str) -> Optional["ConfigReader"]:
+        home_expansion = ConfigReader._get_home_directory()
+        if home_expansion == "~":
+            # path expansion failed
+            return None
+        home_directory = os.path.realpath(home_expansion)
+        filepath = os.path.join(home_directory, ROOT_DIR, filename)
+        return ConfigReader(filepath)
+
+    def read_toml(self, cls: Type[T], *, fallback: T) -> T:
+        import tomlkit
+
+        try:
+            with open(self.filepath, "r") as file:
+                data = tomlkit.parse(file.read())
+                return parse_raw(data, cls, allow_unknown_keys=True)
+        except FileNotFoundError:
+            return fallback
+
+    def write_toml(self, data: Any) -> None:
+        import tomlkit
+
+        _maybe_create_directory(self.filepath)
+        with open(self.filepath, "w") as file:
+            tomlkit.dump(asdict(data), file)
+
+    @staticmethod
+    def _get_home_directory() -> str:
+        # If in pytest, we want to set a temporary directory
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            # If the home directory is given by test, take it
+            home_dir = os.environ.get("MARIMO_PYTEST_HOME_DIR")
+            if home_dir is not None:
+                return home_dir
+            else:
+                tmpdir = TemporaryDirectory()
+                return tmpdir.name
+        else:
+            return os.path.expanduser("~")
+
+#+END_SRC
+*** Function _maybe_create_directory
+#+BEGIN_SRC python
+def _maybe_create_directory(file_path: str) -> None:
+    marimo_directory = os.path.dirname(file_path)
+    if not os.path.exists(marimo_directory):
+        os.makedirs(marimo_directory)
+
+#+END_SRC

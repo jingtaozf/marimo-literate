@@ -1,0 +1,3470 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo._ast
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.__init__
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/__init__.py
+:END:
+** Comment
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+
+#+END_SRC
+* app
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.app
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/app.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import inspect
+import random
+import string
+from dataclasses import asdict, dataclass, field
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Iterable,
+    Iterator,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+)
+from uuid import uuid4
+
+from marimo import _loggers
+from marimo._ast.cell import Cell, CellConfig, CellId_t
+from marimo._ast.compiler import cell_factory
+from marimo._ast.errors import (
+    CycleError,
+    DeleteNonlocalError,
+    MultipleDefinitionError,
+    UnparsableError,
+)
+from marimo._config.config import MarimoConfig, WidthType
+from marimo._config.utils import load_config
+from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.hypertext import Html
+from marimo._output.rich_help import mddoc
+from marimo._runtime import dataflow
+from marimo._runtime.app.kernel_runner import AppKernelRunner
+from marimo._runtime.app.script_runner import AppScriptRunner
+from marimo._runtime.context.types import (
+    get_context,
+    runtime_context_installed,
+)
+from marimo._runtime.requests import (
+    FunctionCallRequest,
+    SetUIElementValueRequest,
+)
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from marimo._messaging.ops import HumanReadableStatus
+    from marimo._plugins.core.web_component import JSONType
+    from marimo._runtime.context.types import ExecutionContext
+
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** @dataclass: Class _AppConfig
+#+BEGIN_SRC python
+@dataclass
+class _AppConfig:
+    """Program-specific configuration.
+
+    Configuration for frontends or runtimes that is specific to
+    a single marimo program.
+    """
+
+    width: WidthType = "compact"
+    app_title: Optional[str] = None
+
+    # The file path of the layout file, relative to the app file.
+    layout_file: Optional[str] = None
+
+    # CSS file, relative to the app file
+    css_file: Optional[str] = None
+
+    # HTML head file, relative to the app file
+    html_head_file: Optional[str] = None
+
+    # Whether to automatically download the app as HTML and Markdown
+    auto_download: List[Literal["html", "markdown"]] = field(
+        default_factory=list
+    )
+
+    @staticmethod
+    def from_untrusted_dict(updates: dict[str, Any]) -> _AppConfig:
+        config = _AppConfig()
+        for key in updates:
+            if hasattr(config, key):
+                config.__setattr__(key, updates[key])
+            else:
+                LOGGER.warning(
+                    f"Unrecognized key '{key}' in app config. Ignoring."
+                )
+        return config
+
+    def asdict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def update(self, updates: dict[str, Any]) -> _AppConfig:
+        config_dict = asdict(self)
+        for key in updates:
+            if key in config_dict:
+                self.__setattr__(key, updates[key])
+
+        return self
+
+#+END_SRC
+** @dataclass: Class CellData
+#+BEGIN_SRC python
+@dataclass
+class CellData:
+    """A cell together with some metadata"""
+
+    cell_id: CellId_t
+    # User code comprising the cell
+    code: str
+    # User-provided name for cell (or default)
+    name: str
+    # Cell config
+    config: CellConfig
+
+    # The original cell, or None if cell was not parsable
+    cell: Optional[Cell]
+
+#+END_SRC
+** Class _Namespace
+#+BEGIN_SRC python
+class _Namespace(Mapping[str, object]):
+    def __init__(
+        self, dictionary: dict[str, object], owner: Cell | App
+    ) -> None:
+        self._dict = dictionary
+        self._owner = owner
+
+    def __getitem__(self, item: str) -> object:
+        return self._dict[item]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._dict)
+
+    def __len__(self) -> int:
+        return len(self._dict)
+
+    def _mime_(self) -> tuple[KnownMimeType, str]:
+        from marimo._plugins.stateless.tree import tree
+
+        return tree(self._dict)._mime_()
+
+#+END_SRC
+** @dataclass: Class AppEmbedResult
+#+BEGIN_SRC python
+@dataclass
+class AppEmbedResult:
+    output: Html
+    defs: Mapping[str, object]
+
+#+END_SRC
+** @mddoc: Class App
+#+BEGIN_SRC python
+@mddoc
+class App:
+    """A marimo notebook.
+
+    A marimo notebook is a dataflow graph, with each node computing a Python
+    function.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        # Take `AppConfig` as kwargs for forward/backward compatibility;
+        # unrecognized settings will just be dropped, instead of raising
+        # a TypeError.
+        self._config = _AppConfig.from_untrusted_dict(kwargs)
+        self._user_config = load_config()
+
+        if runtime_context_installed():
+            # nested applications get a unique cell prefix to disambiguate
+            # their graph from other graphs
+            get_context()
+            cell_prefix = str(uuid4())
+        else:
+            cell_prefix = ""
+
+        self._cell_manager = CellManager(prefix=cell_prefix)
+        self._graph = dataflow.DirectedGraph()
+        self._execution_context: ExecutionContext | None = None
+        self._runner = dataflow.Runner(self._graph)
+
+        self._unparsable = False
+        self._initialized = False
+        # injection hook set by contexts like tests such that script traces are
+        # deterministic and not dependent on the test itself.
+        # Set as a private attribute as not to pollute AppConfig or kwargs.
+        self._anonymous_file = False
+
+        # Filename is derived from the callsite of the app
+        self._filename: str | None = None
+        try:
+            self._filename = inspect.getfile(inspect.stack()[1].frame)
+        except Exception:
+            ...
+        self._app_kernel_runner: AppKernelRunner | None = None
+
+    def cell(
+        self,
+        func: Callable[..., Any] | None = None,
+        *,
+        column: Optional[int] = None,
+        disabled: bool = False,
+        hide_code: bool = False,
+        **kwargs: Any,
+    ) -> Cell | Callable[[Callable[..., Any]], Cell]:
+        """A decorator to add a cell to the app
+
+        This decorator can be called with or without parentheses. Each of the
+        following is valid:
+
+        ```
+        @app.cell
+        def __(mo):
+            # ...
+
+        @app.cell()
+        def __(mo):
+            # ...
+
+        @app.cell(disabled=True)
+        def __(mo):
+            # ...
+        ```
+
+        Args:
+        - func: The decorated function
+        - disabled: Whether to disable the cell
+        - kwargs: For forward-compatibility with future arguments
+        """
+        del kwargs
+
+        return self._cell_manager.cell_decorator(
+            func, column, disabled, hide_code, app=InternalApp(self)
+        )
+
+    def _unparsable_cell(
+        self,
+        code: str,
+        name: Optional[str] = None,
+        **config: Any,
+    ) -> None:
+        self._cell_manager.register_unparsable_cell(
+            code,
+            name,
+            CellConfig.from_dict(config),
+        )
+        self._unparsable = True
+
+    def _maybe_initialize(self) -> None:
+        if self._unparsable:
+            raise UnparsableError(
+                "This notebook has cells with syntax errors, "
+                "so it cannot be initialized."
+            )
+
+        if self._initialized:
+            return
+
+        # Add cells to graph
+        for cell_id, cell in self._cell_manager.valid_cells():
+            self._graph.register_cell(cell_id, cell._cell)
+        self._defs = self._graph.definitions.keys()
+
+        try:
+            # Check for cycles, multiply defined names, and deleted nonlocal
+            if self._graph.cycles:
+                raise CycleError(
+                    "This app can't be run because it has cycles."
+                )
+            multiply_defined_names = self._graph.get_multiply_defined()
+            if multiply_defined_names:
+                raise MultipleDefinitionError(
+                    "This app can't be run because it has multiple "
+                    f"definitions of the name {multiply_defined_names[0]}"
+                )
+            deleted_nonlocal_refs = self._graph.get_deleted_nonlocal_ref()
+            if deleted_nonlocal_refs:
+                raise DeleteNonlocalError(
+                    "This app can't be run because at least one cell "
+                    "deletes one of its refs (the ref's name is "
+                    f"{deleted_nonlocal_refs[0]})"
+                )
+            self._execution_order = dataflow.topological_sort(
+                self._graph, list(self._cell_manager.valid_cell_ids())
+            )
+        finally:
+            self._initialized = True
+
+    def _get_kernel_runner(self) -> AppKernelRunner:
+        if self._app_kernel_runner is None:
+            self._app_kernel_runner = AppKernelRunner(InternalApp(self))
+        return self._app_kernel_runner
+
+    def _flatten_outputs(self, outputs: dict[CellId_t, Any]) -> Sequence[Any]:
+        return tuple(
+            outputs[cid]
+            for cid in self._cell_manager.valid_cell_ids()
+            if not self._graph.is_disabled(cid) and cid in outputs
+        )
+
+    def _globals_to_defs(self, glbls: dict[str, Any]) -> _Namespace:
+        return _Namespace(
+            dictionary={
+                name: glbls[name] for name in self._defs if name in glbls
+            },
+            owner=self,
+        )
+
+    def run(
+        self,
+    ) -> tuple[Sequence[Any], Mapping[str, Any]]:
+        self._maybe_initialize()
+        outputs, glbls = AppScriptRunner(
+            InternalApp(self), filename=self._filename
+        ).run()
+        return (self._flatten_outputs(outputs), self._globals_to_defs(glbls))
+
+    async def _run_cell_async(
+        self, cell: Cell, kwargs: dict[str, Any]
+    ) -> tuple[Any, _Namespace]:
+        self._maybe_initialize()
+        output, defs = await self._runner.run_cell_async(
+            cell._cell.cell_id, kwargs
+        )
+        return output, _Namespace(defs, owner=self)
+
+    def _run_cell_sync(
+        self, cell: Cell, kwargs: dict[str, Any]
+    ) -> tuple[Any, _Namespace]:
+        self._maybe_initialize()
+        output, defs = self._runner.run_cell_sync(cell._cell.cell_id, kwargs)
+        return output, _Namespace(defs, owner=self)
+
+    async def _set_ui_element_value(
+        self, request: SetUIElementValueRequest
+    ) -> bool:
+        app_kernel_runner = self._get_kernel_runner()
+        return await app_kernel_runner.set_ui_element_value(request)
+
+    async def _function_call(
+        self, request: FunctionCallRequest
+    ) -> tuple[HumanReadableStatus, JSONType, bool]:
+        app_kernel_runner = self._get_kernel_runner()
+        return await app_kernel_runner.function_call(request)
+
+    @mddoc
+    async def embed(self) -> AppEmbedResult:
+        """Embed a notebook into another notebook.
+
+        The `embed` method lets you embed the output of a notebook
+        into another notebook and access the values of its variables.
+
+        **Example.**
+
+        ```python
+        from my_notebook import app
+        ```
+
+        ```python
+        # execute the notebook; app.embed() can't be called in the cell
+        # that imported it!
+        result = await app.embed()
+        ```
+
+        ```python
+        # view the notebook's visual output
+        result.output
+        ```
+
+        ```python
+        # access the notebook's defined variables
+        result.defs
+        ```
+
+        Running `await app.embed()` executes the notebook and results an object
+        encapsulating the notebook visual output and its definitions.
+
+        Embedded notebook outputs are interactive: when you interact with
+        UI elements in an embedded notebook's output, any cell referring
+        to the `app` object other than the one that imported it is marked for
+        execution, and its internal state is automatically updated. This lets
+        you use notebooks as building blocks or components to create
+        higher-level notebooks.
+
+        Multiple levels of nesting are supported: it's possible to embed a
+        notebook that in turn embeds another notebook, and marimo will do the
+        right thing.
+
+        **Returns.**
+
+        - An object `result` with two attributes: `result.output` (visual
+          output of the notebook) and `result.defs` (a dictionary mapping
+          variable names defined by the notebook to their values).
+        """
+        from marimo._plugins.stateless.flex import vstack
+        from marimo._runtime.context.utils import running_in_notebook
+
+        self._maybe_initialize()
+
+        if running_in_notebook():
+            # TODO(akshayka): raise a RuntimeError if called in the cell
+            # that defined the name bound to this App, if any
+            app_kernel_runner = self._get_kernel_runner()
+
+            if not app_kernel_runner.outputs:
+                outputs, glbls = await app_kernel_runner.run(
+                    set(self._execution_order)
+                )
+            else:
+                outputs, glbls = (
+                    app_kernel_runner.outputs,
+                    app_kernel_runner.globals,
+                )
+            return AppEmbedResult(
+                output=vstack(
+                    [
+                        o
+                        for o in self._flatten_outputs(outputs)
+                        if o is not None
+                    ]
+                ),
+                defs=self._globals_to_defs(glbls),
+            )
+        else:
+            flat_outputs, defs = self.run()
+            return AppEmbedResult(
+                output=vstack([o for o in flat_outputs if o is not None]),
+                defs=defs,
+            )
+
+#+END_SRC
+** Class CellManager
+#+BEGIN_SRC python
+class CellManager:
+    """
+    A manager for cells.
+
+    This holds the cells that have been registered with the app, and
+    provides methods to access them.
+    """
+
+    def __init__(self, prefix: str = "") -> None:
+        self._cell_data: dict[CellId_t, CellData] = {}
+        self.prefix = prefix
+        self.unparsable = False
+        self.random_seed = random.Random(42)
+
+    def create_cell_id(self) -> CellId_t:
+        # 4 random letters
+        return self.prefix + "".join(
+            self.random_seed.choices(string.ascii_letters, k=4)
+        )
+
+    def cell_decorator(
+        self,
+        func: Callable[..., Any] | None,
+        column: Optional[int],
+        disabled: bool,
+        hide_code: bool,
+        app: InternalApp | None = None,
+    ) -> Cell | Callable[..., Cell]:
+        cell_config = CellConfig(
+            column=column, disabled=disabled, hide_code=hide_code
+        )
+
+        def _register(func: Callable[..., Any]) -> Cell:
+            cell = cell_factory(
+                func,
+                cell_id=self.create_cell_id(),
+                anonymous_file=app._app._anonymous_file if app else False,
+            )
+            cell._cell.configure(cell_config)
+            self._register_cell(cell, app=app)
+            return cell
+
+        if func is None:
+            # If the decorator was used with parentheses, func will be None,
+            # and we return a decorator that takes the decorated function as an
+            # argument
+            def decorator(func: Callable[..., Any]) -> Cell:
+                return _register(func)
+
+            return decorator
+        else:
+            return _register(func)
+
+    def _register_cell(
+        self, cell: Cell, app: InternalApp | None = None
+    ) -> None:
+        if app is not None:
+            cell._register_app(app)
+        cell_impl = cell._cell
+        self.register_cell(
+            cell_id=cell_impl.cell_id,
+            code=cell_impl.code,
+            name=cell.name,
+            config=cell_impl.config,
+            cell=cell,
+        )
+
+    def register_cell(
+        self,
+        cell_id: Optional[CellId_t],
+        code: str,
+        config: Optional[CellConfig],
+        name: str = "__",
+        cell: Optional[Cell] = None,
+    ) -> None:
+        if cell_id is None:
+            cell_id = self.create_cell_id()
+
+        self._cell_data[cell_id] = CellData(
+            cell_id=cell_id,
+            code=code,
+            name=name,
+            config=config or CellConfig(),
+            cell=cell,
+        )
+
+    def register_unparsable_cell(
+        self,
+        code: str,
+        name: Optional[str],
+        cell_config: CellConfig,
+    ) -> None:
+        # - code.split("\n")[1:-1] disregards first and last lines, which are
+        #   empty
+        # - line[4:] removes leading indent in multiline string
+        # - replace(...) unescapes double quotes
+        # - rstrip() removes an extra newline
+        code = "\n".join(
+            [line[4:].replace('\\"', '"') for line in code.split("\n")[1:-1]]
+        )
+
+        self.register_cell(
+            cell_id=self.create_cell_id(),
+            code=code,
+            config=cell_config,
+            name=name or "__",
+            cell=None,
+        )
+
+    def names(self) -> Iterable[str]:
+        for cell_data in self._cell_data.values():
+            yield cell_data.name
+
+    def codes(self) -> Iterable[str]:
+        for cell_data in self._cell_data.values():
+            yield cell_data.code
+
+    def configs(self) -> Iterable[CellConfig]:
+        for cell_data in self._cell_data.values():
+            yield cell_data.config
+
+    def valid_cells(
+        self,
+    ) -> Iterable[tuple[CellId_t, Cell]]:
+        """Return cells and functions for each valid cell."""
+        for cell_data in self._cell_data.values():
+            if cell_data.cell is not None:
+                yield (cell_data.cell_id, cell_data.cell)
+
+    def valid_cell_ids(self) -> Iterable[CellId_t]:
+        for cell_data in self._cell_data.values():
+            if cell_data.cell is not None:
+                yield cell_data.cell_id
+
+    def cell_ids(self) -> Iterable[CellId_t]:
+        """Cell IDs in the order they were registered."""
+        return self._cell_data.keys()
+
+    def cells(
+        self,
+    ) -> Iterable[Optional[Cell]]:
+        for cell_data in self._cell_data.values():
+            yield cell_data.cell
+
+    def config_map(self) -> dict[CellId_t, CellConfig]:
+        return {cid: cd.config for cid, cd in self._cell_data.items()}
+
+    def cell_data(self) -> Iterable[CellData]:
+        return self._cell_data.values()
+
+    def cell_data_at(self, cell_id: CellId_t) -> CellData:
+        return self._cell_data[cell_id]
+
+    def get_cell_id_by_code(self, code: str) -> Optional[CellId_t]:
+        """
+        Finds the first cell with the given code and returns its cell ID.
+        """
+        for cell_id, cell_data in self._cell_data.items():
+            if cell_data.code == code:
+                return cell_id
+        return None
+
+#+END_SRC
+** Class InternalApp
+#+BEGIN_SRC python
+class InternalApp:
+    """
+    Internal representation of an app.
+
+    This exposes private APIs that are used by the server and other
+    internal components.
+    """
+
+    def __init__(self, app: App) -> None:
+        self._app = app
+
+    @property
+    def config(self) -> _AppConfig:
+        return self._app._config
+
+    @property
+    def user_config(self) -> MarimoConfig:
+        return self._app._user_config
+
+    @property
+    def cell_manager(self) -> CellManager:
+        return self._app._cell_manager
+
+    @property
+    def graph(self) -> dataflow.DirectedGraph:
+        self._app._maybe_initialize()
+        return self._app._graph
+
+    @property
+    def execution_order(self) -> list[CellId_t]:
+        self._app._maybe_initialize()
+        return self._app._execution_order
+
+    @property
+    def execution_context(self) -> ExecutionContext | None:
+        return self._app._execution_context
+
+    def set_execution_context(
+        self, execution_context: ExecutionContext | None
+    ) -> None:
+        self._app._execution_context = execution_context
+
+    @property
+    def runner(self) -> dataflow.Runner:
+        self._app._maybe_initialize()
+        return self._app._runner
+
+    def update_config(self, updates: dict[str, Any]) -> _AppConfig:
+        return self.config.update(updates)
+
+    def with_data(
+        self,
+        *,
+        cell_ids: Iterable[CellId_t],
+        codes: Iterable[str],
+        names: Iterable[str],
+        configs: Iterable[CellConfig],
+    ) -> InternalApp:
+        new_cell_manager = CellManager()
+        for cell_id, code, name, config in zip(
+            cell_ids, codes, names, configs
+        ):
+            cell = None
+            # If the cell exists, the cell data should be set.
+            cell_data = self._app._cell_manager._cell_data.get(cell_id)
+            if cell_data is not None:
+                cell = cell_data.cell
+            new_cell_manager.register_cell(
+                cell_id=cell_id,
+                code=code,
+                name=name,
+                config=config,
+                cell=cell,
+            )
+        self._app._cell_manager = new_cell_manager
+        return self
+
+    async def run_cell_async(
+        self, cell: Cell, kwargs: dict[str, Any]
+    ) -> tuple[Any, _Namespace]:
+        return await self._app._run_cell_async(cell, kwargs)
+
+    def run_cell_sync(
+        self, cell: Cell, kwargs: dict[str, Any]
+    ) -> tuple[Any, _Namespace]:
+        return self._app._run_cell_sync(cell, kwargs)
+
+    async def set_ui_element_value(
+        self, request: SetUIElementValueRequest
+    ) -> bool:
+        return await self._app._set_ui_element_value(request)
+
+    async def function_call(
+        self, request: FunctionCallRequest
+    ) -> tuple[HumanReadableStatus, JSONType, bool]:
+        return await self._app._function_call(request)
+
+#+END_SRC
+* cell
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.cell
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/cell.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import dataclasses
+import inspect
+from typing import TYPE_CHECKING, Any, Literal, Mapping, Optional
+
+from marimo._ast.sql_visitor import SQLVisitor
+from marimo._ast.visitor import ImportData, Language, Name, VariableData
+from marimo._utils.deep_merge import deep_merge
+
+#+END_SRC
+** Assignment CellId_t = str
+#+BEGIN_SRC python
+CellId_t = str
+
+#+END_SRC
+** @dataclasses.dataclass: Class CellConfig
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Iterable
+    from types import CodeType
+
+    from marimo._ast.app import InternalApp
+    from marimo._messaging.types import Stream
+    from marimo._output.hypertext import Html
+
+
+@dataclasses.dataclass
+class CellConfig:
+    column: Optional[int] = None
+
+    # If True, the cell and its descendants cannot be executed,
+    # but they can still be added to the graph.
+    disabled: bool = False
+
+    # If True, the cell is hidden from the editor.
+    hide_code: bool = False
+
+    @classmethod
+    def from_dict(cls, kwargs: dict[str, Any]) -> CellConfig:
+        return cls(**{k: v for k, v in kwargs.items() if k in CellConfigKeys})
+
+    def asdict(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
+
+    def configure(self, update: dict[str, Any] | CellConfig) -> None:
+        """Update the config in-place.
+
+        `update` can be a partial config or a CellConfig
+        """
+        if isinstance(update, CellConfig):
+            update = dataclasses.asdict(update)
+        new_config = dataclasses.asdict(
+            CellConfig.from_dict(deep_merge(dataclasses.asdict(self), update))
+        )
+        for key, value in new_config.items():
+            self.__setattr__(key, value)
+
+#+END_SRC
+** Assignment CellConfigKeys
+#+BEGIN_SRC python
+CellConfigKeys = frozenset(
+    {field.name for field in dataclasses.fields(CellConfig)}
+)
+
+#+END_SRC
+** Assignment RuntimeStateType
+#+BEGIN_SRC python
+# States in a cell's runtime state machine
+#
+# idle: cell has run with latest inputs
+# queued: cell is queued to run
+# running: cell is running
+# disabled-transitively: cell is disabled because a parent is disabled
+RuntimeStateType = Literal[
+    "idle", "queued", "running", "disabled-transitively"
+]
+
+#+END_SRC
+** @dataclasses.dataclass: Class RuntimeState
+#+BEGIN_SRC python
+@dataclasses.dataclass
+class RuntimeState:
+    state: Optional[RuntimeStateType] = None
+
+#+END_SRC
+** Assignment RunResultStatusType
+#+BEGIN_SRC python
+# Statuses for a cell's attempted execution
+#
+# cancelled:    an ancestor raised an exception
+# marimo-error: cell was prevented from executing
+# disabled:     skipped because the cell is disabled
+RunResultStatusType = Literal[
+    "success",
+    "exception",
+    "cancelled",
+    "interrupted",
+    "marimo-error",
+    "disabled",
+]
+
+#+END_SRC
+** @dataclasses.dataclass: Class RunResultStatus
+#+BEGIN_SRC python
+@dataclasses.dataclass
+class RunResultStatus:
+    state: Optional[RunResultStatusType] = None
+
+#+END_SRC
+** @dataclasses.dataclass: Class ImportWorkspace
+#+BEGIN_SRC python
+@dataclasses.dataclass
+class ImportWorkspace:
+    """A workspace for runtimes to use to manage a cell's imports."""
+
+    # A cell is an import block if all statements are import statements
+    is_import_block: bool = False
+    # Defs that have been imported by the runtime
+    imported_defs: set[Name] = dataclasses.field(default_factory=set)
+
+#+END_SRC
+** Function _is_coroutine
+#+BEGIN_SRC python
+def _is_coroutine(code: Optional[CodeType]) -> bool:
+    if code is None:
+        return False
+    return inspect.CO_COROUTINE & code.co_flags == inspect.CO_COROUTINE
+
+#+END_SRC
+** @dataclasses.dataclass: Class CellStaleState
+#+BEGIN_SRC python
+@dataclasses.dataclass
+class CellStaleState:
+    state: bool = False
+
+#+END_SRC
+** @dataclasses.dataclass: Class CellOutput
+#+BEGIN_SRC python
+@dataclasses.dataclass
+class CellOutput:
+    output: Any = None
+
+#+END_SRC
+** @dataclasses.dataclass: Class ParsedSQLStatements
+#+BEGIN_SRC python
+@dataclasses.dataclass
+class ParsedSQLStatements:
+    parsed: Optional[list[str]] = None
+
+#+END_SRC
+** @dataclasses.dataclass(frozen=True): Class CellImpl
+#+BEGIN_SRC python
+@dataclasses.dataclass(frozen=True)
+class CellImpl:
+    # hash of code
+    key: int
+    code: str
+    mod: ast.Module
+    defs: set[Name]
+    refs: set[Name]
+    temporaries: set[Name]
+
+    # metadata about definitions
+    variable_data: dict[Name, list[VariableData]]
+    deleted_refs: set[Name]
+    body: Optional[CodeType]
+    last_expr: Optional[CodeType]
+    # whether this cell is Python or SQL
+    language: Language
+    # unique id
+    cell_id: CellId_t
+
+    # Mutable fields
+    # explicit configuration of cell
+    config: CellConfig = dataclasses.field(default_factory=CellConfig)
+    # workspace for runtimes to use to store metadata about imports
+    import_workspace: ImportWorkspace = dataclasses.field(
+        default_factory=ImportWorkspace
+    )
+    # execution status, inferred at runtime
+    _status: RuntimeState = dataclasses.field(default_factory=RuntimeState)
+    _run_result_status: RunResultStatus = dataclasses.field(
+        default_factory=RunResultStatus
+    )
+    # whether the cell is stale, inferred at runtime
+    _stale: CellStaleState = dataclasses.field(default_factory=CellStaleState)
+    # cells can optionally hold a reference to their output
+    _output: CellOutput = dataclasses.field(default_factory=CellOutput)
+    # parsed sql statements
+    _sqls: ParsedSQLStatements = dataclasses.field(
+        default_factory=ParsedSQLStatements
+    )
+
+    def configure(self, update: dict[str, Any] | CellConfig) -> CellImpl:
+        """Update the cell config.
+
+        `update` can be a partial config.
+        """
+        self.config.configure(update)
+        return self
+
+    @property
+    def runtime_state(self) -> Optional[RuntimeStateType]:
+        return self._status.state
+
+    @property
+    def run_result_status(self) -> Optional[RunResultStatusType]:
+        return self._run_result_status.state
+
+    @property
+    def sqls(self) -> list[str]:
+        """Return a list of SQL statements for this cell."""
+        if self._sqls.parsed is not None:
+            return self._sqls.parsed
+
+        try:
+            visitor = SQLVisitor()
+            visitor.visit(ast.parse(self.code))
+            sqls = visitor.get_sqls()
+            self._sqls.parsed = sqls
+        except Exception:
+            self._sqls.parsed = []
+
+        return self._sqls.parsed
+
+    @property
+    def stale(self) -> bool:
+        return self._stale.state
+
+    @property
+    def disabled_transitively(self) -> bool:
+        return self.runtime_state == "disabled-transitively"
+
+    @property
+    def imports(self) -> Iterable[ImportData]:
+        """Return a set of import data for this cell."""
+        import_data = []
+        for data in self.variable_data.values():
+            import_data.extend(
+                [
+                    datum.import_data
+                    for datum in data
+                    if datum.import_data is not None
+                ]
+            )
+        return import_data
+
+    @property
+    def imported_namespaces(self) -> set[Name]:
+        """Return a set of the namespaces imported by this cell."""
+        return set(
+            import_data.module.split(".")[0] for import_data in self.imports
+        )
+
+    def namespace_to_variable(self, namespace: str) -> Name | None:
+        """Returns the variable name corresponding to an imported namespace
+
+        Relevant for imports "as" imports, eg
+
+        import matplotlib.pyplot as plt
+
+        In this case the namespace is "matplotlib" but the name is "plt".
+        """
+        for import_data in self.imports:
+            if import_data.namespace == namespace:
+                return import_data.definition
+        return None
+
+    def is_coroutine(self) -> bool:
+        return _is_coroutine(self.body) or _is_coroutine(self.last_expr)
+
+    def set_runtime_state(
+        self, status: RuntimeStateType, stream: Stream | None = None
+    ) -> None:
+        """Set execution status and broadcast to frontends."""
+        from marimo._messaging.ops import CellOp
+        from marimo._runtime.context import (
+            ContextNotInitializedError,
+            get_context,
+        )
+
+        self._status.state = status
+        try:
+            get_context()
+        except ContextNotInitializedError:
+            return
+
+        assert self.cell_id is not None
+        CellOp.broadcast_status(
+            cell_id=self.cell_id, status=status, stream=stream
+        )
+
+    def set_run_result_status(
+        self, run_result_status: RunResultStatusType
+    ) -> None:
+        self._run_result_status.state = run_result_status
+
+    def set_stale(self, stale: bool, stream: Stream | None = None) -> None:
+        from marimo._messaging.ops import CellOp
+
+        self._stale.state = stale
+        CellOp.broadcast_stale(
+            cell_id=self.cell_id, stale=stale, stream=stream
+        )
+
+    def set_output(self, output: Any) -> None:
+        self._output.output = output
+
+    @property
+    def output(self) -> Any:
+        return self._output.output
+
+#+END_SRC
+** @dataclasses.dataclass: Class Cell
+#+BEGIN_SRC python
+@dataclasses.dataclass
+class Cell:
+    """An executable notebook cell
+
+    A `Cell` object can be executed as a function via its `run()` method, which
+    returns the cell's last expression (output) and a mapping from its defined
+    names to its values.
+
+    Cells can be named via the marimo editor in the browser, or by
+    changing the cell's function name in the notebook file. Named
+    cells can then be executed for use in other notebooks, or to test
+    in unit tests.
+
+    For example:
+
+    ```python
+    from my_notebook import my_cell
+
+    output, definitions = my_cell.run()
+    ```
+
+    See the documentation of `run` for info and examples.
+    """
+
+    # Function from which this cell was created
+    _name: str
+
+    # Internal cell representation
+    _cell: CellImpl
+
+    # App to which this cell belongs
+    _app: InternalApp | None = None
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def refs(self) -> set[str]:
+        """The references that this cell takes as input"""
+        return self._cell.refs
+
+    @property
+    def defs(self) -> set[str]:
+        """The definitions made by this cell"""
+        return self._cell.defs
+
+    def _is_coroutine(self) -> bool:
+        """Whether this cell is a coroutine function.
+
+        If True, then this cell's `run` method returns an awaitable.
+        """
+        if hasattr(self, "_is_coro_cached"):
+            return self._is_coro_cached
+        assert self._app is not None
+        self._is_coro_cached: bool = self._app.runner.is_coroutine(
+            self._cell.cell_id
+        )
+        return self._is_coro_cached
+
+    def _help(self) -> Html:
+        from marimo._output.formatting import as_html
+        from marimo._output.md import md
+
+        signature_prefix = "Async " if self._is_coroutine() else ""
+        execute_str_refs = (
+            f"output, defs = await {self.name}.run(**refs)"
+            if self._is_coroutine()
+            else f"output, defs = {self.name}.run(**refs)"
+        )
+        execute_str_no_refs = (
+            f"output, defs = await {self.name}.run()"
+            if self._is_coroutine()
+            else f"output, defs = {self.name}.run()"
+        )
+
+        return md(
+            f"""
+            **{signature_prefix}Cell `{self.name}`**
+
+            You can execute this cell using
+
+            `{execute_str_refs}`
+
+            where `refs` is a dictionary mapping a subset of the
+            cell's references to values. Missing refs will be automatically
+            computed. To automatically compute all refs, simply run with
+
+            `{execute_str_no_refs}`
+
+            **References:**
+
+            {as_html(list(self.refs))}
+
+            **Definitions:**
+
+            {as_html(list(self.defs))}
+            """
+        )
+
+    def _register_app(self, app: InternalApp) -> None:
+        self._app = app
+
+    def run(
+        self, **refs: Any
+    ) -> (
+        tuple[Any, Mapping[str, Any]]
+        | Awaitable[tuple[Any, Mapping[str, Any]]]
+    ):
+        """Run this cell and return its visual output and definitions
+
+        Use this method to run **named cells** and retrieve their output and
+        definitions.
+
+        This lets you use reuse cells defined in one notebook in another
+        notebook or Python file. It also makes it possible to write and execute
+        unit tests for notebook cells using a test framework like `pytest`.
+
+        **Example.** marimo cells can be given names either through the
+        editor cell menu or by manually changing the function name in the
+        notebook file. For example, consider a notebook `notebook.py`:
+
+        ```python
+        import marimo
+
+        app = marimo.App()
+
+
+        @app.cell
+        def __():
+            import marimo as mo
+
+            return (mo,)
+
+
+        @app.cell
+        def __():
+            x = 0
+            y = 1
+            return (x, y)
+
+
+        @app.cell
+        def add(mo, x, y):
+            z = x + y
+            mo.md(f"The value of z is {z}")
+            return (z,)
+
+
+        if __name__ == "__main__":
+            app.run()
+        ```
+
+        To reuse the `add` cell in another notebook, you'd simply write
+
+        ```python
+        from notebook import add
+
+        # `output` is the markdown rendered by `add`
+        # defs["z"] == `1`
+        output, defs = add.run()
+        ```
+
+        When `run` is called without arguments, it automatically computes the
+        values that the cell depends on (in this case, `mo`, `x`, and `y`). You
+        can override these values by providing any subset of them as keyword
+        arguments. For example,
+
+        ```python
+        # defs["z"] == 4
+        output, defs = add.run(x=2, y=2)
+        ```
+
+        **Defined UI Elements.** If the cell's `output` has UI elements
+        that are in `defs`, interacting with the output in the frontend will
+        trigger reactive execution of cells that reference the `defs` object.
+        For example, if `output` has a slider defined by the cell, then
+        scrubbing the slider will cause cells that reference `defs` to run.
+
+        **Async cells.** If this cell is a coroutine function (starting with
+        `async`), or if any of its ancestors are coroutine functions, then
+        you'll need to `await` the result: `output, defs = await cell.run()`.
+        You can check whether the result is an awaitable using:
+
+        ```python
+        from collections.abc import Awaitable
+
+        ret = cell.run()
+        if isinstance(ret, Awaitable):
+            output, defs = await ret
+        else:
+            output, defs = ret
+        ```
+
+        **Arguments**:
+
+        - You may pass values for any of this cell's references as keyword
+          arguments. marimo will automatically compute values for any refs
+          that are not provided by executing the parent cells that compute
+          them.
+
+        **Returns**:
+
+        - a tuple `(output, defs)`, or an awaitable of the same, where `output`
+          is the cell's last expression and `defs` is a `Mapping` from the
+          cell's defined names to their values.
+        """
+        assert self._app is not None
+        if self._is_coroutine():
+            return self._app.run_cell_async(cell=self, kwargs=refs)
+        else:
+            return self._app.run_cell_sync(cell=self, kwargs=refs)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> None:
+        del args
+        del kwargs
+        if self._is_coroutine():
+            call_str = f"`outputs, defs = await {self.name}.run()`"
+        else:
+            call_str = f"`outputs, defs = {self.name}.run()`"
+
+        raise RuntimeError(
+            f"Calling marimo cells using `{self.name}()` is not supported. "
+            f"Use {call_str} instead. "
+        )
+
+#+END_SRC
+** @dataclasses.dataclass: Class SourcePosition
+#+BEGIN_SRC python
+@dataclasses.dataclass
+class SourcePosition:
+    filename: str
+    lineno: int
+    col_offset: int
+
+#+END_SRC
+** Function is_ws
+#+BEGIN_SRC python
+def is_ws(char: str) -> bool:
+    return char == " " or char == "\n" or char == "\t"
+
+#+END_SRC
+* codegen
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.codegen
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/codegen.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import builtins
+import importlib.util
+import json
+import os
+from typing import TYPE_CHECKING, Any, List, Optional, Union, cast
+
+from marimo import __version__
+from marimo._ast.app import App, _AppConfig
+from marimo._ast.cell import CellConfig, CellImpl
+from marimo._ast.compiler import compile_cell
+from marimo._ast.visitor import Name
+
+#+END_SRC
+** Assignment INDENT = "    "
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+INDENT = "    "
+
+#+END_SRC
+** Assignment MAX_LINE_LENGTH = 80
+#+BEGIN_SRC python
+MAX_LINE_LENGTH = 80
+
+#+END_SRC
+** Function indent_text
+#+BEGIN_SRC python
+def indent_text(text: str) -> str:
+    return "\n".join(
+        [INDENT + line if line else line for line in text.split("\n")]
+    )
+
+#+END_SRC
+** Function _multiline_tuple
+#+BEGIN_SRC python
+def _multiline_tuple(elems: Sequence[str]) -> str:
+    if elems:
+        return "(" + "\n" + indent_text(",\n".join(elems)) + ",\n)"
+    else:
+        return "()"
+
+#+END_SRC
+** Function _to_decorator
+#+BEGIN_SRC python
+def _to_decorator(config: Optional[CellConfig]) -> str:
+    if config is None:
+        return "@app.cell"
+
+    # Removed defaults. If the cell's config is the default config,
+    # don't include it in the decorator.
+    if not config.disabled:
+        del config.disabled
+    if not config.hide_code:
+        del config.hide_code
+    if not isinstance(config.column, int):
+        del config.column
+
+    if config == CellConfig():
+        return "@app.cell"
+    else:
+        return (
+            "@app.cell("
+            + ", ".join(
+                f"{key}={value}" for key, value in config.__dict__.items()
+            )
+            + ")"
+        )
+
+#+END_SRC
+** Function to_functiondef
+#+BEGIN_SRC python
+def to_functiondef(
+    cell: CellImpl, name: str, unshadowed_builtins: Optional[set[Name]] = None
+) -> str:
+    # unshadowed builtins is the set of builtins that haven't been
+    # overridden (shadowed) by other cells in the app. These names
+    # should not be taken as args by a cell's functiondef (since they are
+    # already in globals)
+    if unshadowed_builtins is None:
+        unshadowed_builtins = set(builtins.__dict__.keys())
+    refs = [ref for ref in sorted(cell.refs) if ref not in unshadowed_builtins]
+    args = ", ".join(refs)
+
+    decorator = _to_decorator(cell.config)
+    signature = f"def {name}({args}):"
+    prefix = "" if not cell.is_coroutine() else "async "
+    if len(INDENT + prefix + signature) >= MAX_LINE_LENGTH:
+        signature = f"def {name}{_multiline_tuple(refs)}:"
+    signature = prefix + signature
+
+    fndef = decorator + "\n" + signature + "\n"
+    body = indent_text(cell.code)
+    if body:
+        fndef += body + "\n"
+
+    if cell.defs:
+        defs = tuple(name for name in sorted(cell.defs))
+        returns = INDENT + "return "
+        if len(cell.defs) == 1:
+            returns += f"({defs[0]},)"
+        else:
+            returns += ", ".join(defs)
+        fndef += (
+            returns
+            if len(INDENT + returns) <= MAX_LINE_LENGTH
+            else (indent_text("return " + _multiline_tuple(defs)))
+        )
+    else:
+        fndef += INDENT + "return"
+    return fndef
+
+#+END_SRC
+** Function generate_unparsable_cell
+#+BEGIN_SRC python
+def generate_unparsable_cell(
+    code: str, name: Optional[str], config: CellConfig
+) -> str:
+    # escape double quotes to not interfere with string
+    quote_escaped_code = code.replace('"', '\\"')
+    # use r-string to handle backslashes (don't want to write
+    # escape characters, want to actually write backslash characters)
+    code_as_str = f'r"""\n{quote_escaped_code}\n"""'
+    text = "app._unparsable_cell(\n" + indent_text(code_as_str)
+    if name is not None:
+        text += ",\n" + INDENT + f'name="{name}"'
+    if config != CellConfig():
+        text += (
+            ",\n"
+            + INDENT
+            + ", ".join(
+                f"{key}={value}" for key, value in config.__dict__.items()
+            )
+        )
+    text += "\n)"
+    return text
+
+#+END_SRC
+** Function generate_app_constructor
+#+BEGIN_SRC python
+def generate_app_constructor(config: Optional[_AppConfig]) -> str:
+    def _format_arg(arg: Any) -> str:
+        if isinstance(arg, str):
+            return f'"{arg}"'.replace("\\", "\\\\")
+        elif isinstance(arg, list):
+            return "[" + ", ".join([_format_arg(item) for item in arg]) + "]"
+        else:
+            return str(arg)
+
+    default_config = _AppConfig().asdict()
+    updates = {}
+    # only include a config setting if it's not a default setting, to
+    # avoid unnecessary edits to the app file
+    if config is not None:
+        updates = config.asdict()
+        for key in default_config:
+            if updates[key] == default_config[key]:
+                updates.pop(key)
+
+    kwargs = [f"{key}={_format_arg(value)}" for key, value in updates.items()]
+    app_constructor = "app = marimo.App(" + ", ".join(kwargs) + ")"
+    if len(app_constructor) >= MAX_LINE_LENGTH:
+        app_constructor = "app = marimo.App" + _multiline_tuple(kwargs)
+    return app_constructor
+
+#+END_SRC
+** Function generate_filecontents
+#+BEGIN_SRC python
+def generate_filecontents(
+    codes: list[str],
+    names: list[str],
+    cell_configs: list[CellConfig],
+    config: Optional[_AppConfig] = None,
+    header_comments: Optional[str] = None,
+) -> str:
+    """Translates a sequences of codes (cells) to a Python file"""
+    cell_data: list[Union[CellImpl, tuple[str, CellConfig]]] = []
+    defs: set[Name] = set()
+
+    cell_id = 0
+    for code, cell_config in zip(codes, cell_configs):
+        try:
+            cell = compile_cell(code, cell_id=str(cell_id)).configure(
+                cell_config
+            )
+            defs |= cell.defs
+            cell_data.append(cell)
+        except SyntaxError:
+            cell_data.append((code, cell_config))
+        cell_id += 1
+
+    unshadowed_builtins = set(builtins.__dict__.keys()) - defs
+    fndefs: list[str] = []
+    for data, name in zip(cell_data, names):
+        if isinstance(data, CellImpl):
+            fndefs.append(to_functiondef(data, name, unshadowed_builtins))
+        else:
+            fndefs.append(
+                generate_unparsable_cell(
+                    code=data[0], config=data[1], name=name
+                )
+            )
+
+    filecontents = (
+        "import marimo"
+        + "\n\n"
+        + f'__generated_with = "{__version__}"'
+        + "\n"
+        + generate_app_constructor(config)
+        + "\n\n\n"
+        + "\n\n\n".join(fndefs)
+        + "\n\n\n"
+        + 'if __name__ == "__main__":'
+        + "\n"
+        + indent_text("app.run()")
+    )
+
+    if header_comments:
+        filecontents = header_comments.rstrip() + "\n\n" + filecontents
+    return filecontents + "\n"
+
+#+END_SRC
+** Class MarimoFileError
+#+BEGIN_SRC python
+class MarimoFileError(Exception):
+    pass
+
+#+END_SRC
+** Function get_app
+#+BEGIN_SRC python
+def get_app(filename: Optional[str]) -> Optional[App]:
+    """Load and return app from a marimo-generated module"""
+    if filename is None:
+        return None
+
+    with open(filename, "r", encoding="utf-8") as f:
+        contents = f.read().strip()
+
+    if not contents:
+        return None
+
+    if filename.endswith(".md"):
+        from marimo._cli.convert.markdown import convert_from_md_to_app
+
+        return convert_from_md_to_app(contents)
+
+    spec = importlib.util.spec_from_file_location("marimo_app", filename)
+    if spec is None:
+        raise RuntimeError("Failed to load module spec")
+    marimo_app = importlib.util.module_from_spec(spec)
+    if spec.loader is None:
+        raise RuntimeError("Failed to load module spec's loader")
+    spec.loader.exec_module(marimo_app)
+    if not hasattr(marimo_app, "app"):
+        raise MarimoFileError(f"{filename} missing attribute `app`.")
+    if not isinstance(marimo_app.app, App):
+        raise MarimoFileError("`app` attribute must be of type `marimo.App`.")
+
+    app = marimo_app.app
+    return app
+
+#+END_SRC
+** Assignment RECOVERY_CELL_MARKER = "ↁ"
+#+BEGIN_SRC python
+RECOVERY_CELL_MARKER = "ↁ"
+
+#+END_SRC
+** Function recover
+#+BEGIN_SRC python
+def recover(filename: str) -> str:
+    """Generate a module for code recovered from a disconnected frontend"""
+    with open(filename, "r", encoding="utf-8") as f:
+        contents = f.read()
+    cells = json.loads(contents)["cells"]
+    codes, names, configs = tuple(
+        zip(
+            *[
+                (
+                    cell["code"],
+                    cell["name"],
+                    cell["config"] if "config" in cell else CellConfig(),
+                )
+                for cell in cells
+            ]
+        )
+    )
+    return generate_filecontents(
+        cast(List[str], codes),
+        cast(List[str], names),
+        cast(List[CellConfig], configs),
+    )
+
+#+END_SRC
+** Function get_header_comments
+#+BEGIN_SRC python
+def get_header_comments(filename: str) -> Optional[str]:
+    """Gets the header comments from a file. Returns
+    None if the file does not exist or the header is
+    invalid, which is determined by:
+        1. If the file is does not contain the marimo
+            import statement
+        2. If the section before the marimo import
+            statement contains any non-comment code
+    """
+
+    def is_multiline_comment(node: ast.stmt) -> bool:
+        """Checks if a node is a docstring or a multiline comment."""
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            return True
+        return False
+
+    if not os.path.exists(filename):
+        return None
+
+    with open(filename, "r", encoding="utf-8") as f:
+        contents = f.read()
+
+    if "import marimo" not in contents:
+        return None
+
+    header, _ = contents.split("import marimo", 1)
+
+    # Ensure the header only contains non-executable code
+    # ast parses out single line comments, so we only
+    # need to check that every node is not a multiline comment
+    module = ast.parse(header)
+    if any(not is_multiline_comment(node) for node in module.body):
+        return None
+
+    return header
+
+#+END_SRC
+* compiler
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.compiler
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/compiler.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import inspect
+import io
+import linecache
+import os
+import re
+import textwrap
+import token as token_types
+from tokenize import TokenInfo, tokenize
+from typing import TYPE_CHECKING, Any, Callable, Optional
+
+from marimo._ast.cell import (
+    Cell,
+    CellId_t,
+    CellImpl,
+    ImportWorkspace,
+    SourcePosition,
+)
+from marimo._ast.visitor import ImportData, Name, ScopedVisitor
+from marimo._utils.tmpdir import get_tmpdir
+from marimo._utils.variables import is_local
+
+#+END_SRC
+** Function code_key
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+
+def code_key(code: str) -> int:
+    return hash(code)
+
+#+END_SRC
+** Function cell_id_from_filename
+#+BEGIN_SRC python
+def cell_id_from_filename(filename: str) -> Optional[CellId_t]:
+    """Parse cell id from filename."""
+    matches = re.findall(r"__marimo__cell_(.*?)_", filename)
+    if matches:
+        return str(matches[0])
+    return None
+
+#+END_SRC
+** Function get_filename
+#+BEGIN_SRC python
+def get_filename(cell_id: CellId_t, suffix: str = "") -> str:
+    """Get a temporary Python filename that encodes the cell id in it."""
+    basename = f"__marimo__cell_{cell_id}_"
+    return os.path.join(get_tmpdir(), basename + suffix + ".py")
+
+#+END_SRC
+** Function cache
+#+BEGIN_SRC python
+def cache(filename: str, code: str) -> None:
+    # Generate a cache entry in Python's linecache
+    linecache.cache[filename] = (
+        len(code),
+        None,
+        [line + "\n" for line in code.splitlines()],
+        filename,
+    )
+
+#+END_SRC
+** Function fix_source_position
+#+BEGIN_SRC python
+def fix_source_position(node: Any, source_position: SourcePosition) -> Any:
+    # NOTE: This function closely mirrors python's native ast.increment_lineno
+    # however, utilized here to also increment the col_offset of the node.
+    # See https://docs.python.org/3/library/ast.html#ast.increment_lineno
+    # for reference.
+    line_offset = source_position.lineno
+    col_offset = source_position.col_offset
+    for child in ast.walk(node):
+        # TypeIgnore is a special case where lineno is not an attribute
+        # but rather a field of the node itself.
+        # Note, TypeIgnore does not have a "col_offset"
+        if isinstance(child, ast.TypeIgnore):
+            child.lineno = getattr(child, "lineno", 0) + line_offset
+            continue
+
+        if "lineno" in child._attributes:
+            child.lineno = getattr(child, "lineno", 0) + line_offset
+
+        if "col_offset" in child._attributes:
+            child.col_offset = getattr(child, "col_offset", 0) + col_offset
+
+        if (
+            "end_lineno" in child._attributes
+            and (end_lineno := getattr(child, "end_lineno", 0)) is not None
+        ):
+            child.end_lineno = end_lineno + line_offset
+
+        if (
+            "end_col_offset" in child._attributes
+            and (end_col_offset := getattr(child, "end_col_offset", 0))
+            is not None
+        ):
+            child.end_col_offset = end_col_offset + col_offset
+    return node
+
+#+END_SRC
+** Function compile_cell
+#+BEGIN_SRC python
+def compile_cell(
+    code: str,
+    cell_id: CellId_t,
+    source_position: Optional[SourcePosition] = None,
+    carried_imports: list[ImportData] | None = None,
+) -> CellImpl:
+    # Replace non-breaking spaces with regular spaces -- some frontends
+    # send nbsp in place of space, which is a syntax error.
+    #
+    # See https://github.com/pyodide/pyodide/issues/3337,
+    #     https://github.com/marimo-team/marimo/issues/1546
+    code = code.replace("\u00a0", " ")
+    module = compile(
+        code,
+        "<unknown>",
+        mode="exec",
+        flags=ast.PyCF_ONLY_AST | ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+    )
+    if not module.body:
+        # either empty code or just comments
+        return CellImpl(
+            key=hash(""),
+            code=code,
+            mod=module,
+            defs=set(),
+            refs=set(),
+            temporaries=set(),
+            variable_data={},
+            deleted_refs=set(),
+            language="python",
+            body=None,
+            last_expr=None,
+            cell_id=cell_id,
+        )
+
+    is_import_block = all(
+        isinstance(stmt, (ast.Import, ast.ImportFrom)) for stmt in module.body
+    )
+
+    v = ScopedVisitor("cell_" + cell_id)
+    v.visit(module)
+
+    expr: ast.Expression
+    final_expr = module.body[-1]
+    if isinstance(final_expr, ast.Expr):
+        expr = ast.Expression(module.body.pop().value)
+        expr.lineno = final_expr.lineno
+    else:
+        const = ast.Constant(value=None)
+        const.col_offset = final_expr.end_col_offset
+        const.end_col_offset = final_expr.end_col_offset
+        expr = ast.Expression(const)
+        # use code over body since lineno corresponds to source
+        const.lineno = len(code.splitlines()) + 1
+        expr.lineno = const.lineno
+    # Creating an expression clears source info, so it needs to be set back
+    expr.col_offset = final_expr.end_col_offset
+    expr.end_col_offset = final_expr.end_col_offset
+
+    filename: str
+    if source_position:
+        # Modify the "source" position for meaningful stacktraces
+        fix_source_position(module, source_position)
+        fix_source_position(expr, source_position)
+        filename = source_position.filename
+    else:
+        # store the cell's code in Python's linecache so debuggers can find it
+        filename = get_filename(cell_id)
+        # cache the entire cell's code, doesn't need to be done in source case
+        # since there is an actual file to read from.
+        cache(filename, code)
+
+    flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
+    body = compile(module, filename, mode="exec", flags=flags)
+    last_expr = compile(expr, filename, mode="eval", flags=flags)
+
+    nonlocals = {name for name in v.defs if not is_local(name)}
+    temporaries = v.defs - nonlocals
+    variable_data = {
+        name: v.variable_data[name]
+        for name in nonlocals
+        if name in v.variable_data
+    }
+
+    # If this cell is an import cell, we carry over any imports in
+    # `carried_imports` that are also in this cell to the import workspace's
+    # definitions.
+    imported_defs: set[Name] = set()
+    if is_import_block and carried_imports is not None:
+        for data in variable_data.values():
+            for datum in data:
+                import_data = datum.import_data
+                if import_data is None:
+                    continue
+                for previous_import_data in carried_imports:
+                    if previous_import_data == import_data:
+                        imported_defs.add(import_data.definition)
+
+    return CellImpl(
+        # keyed by original (user) code, for cache lookups
+        key=code_key(code),
+        code=code,
+        mod=module,
+        defs=nonlocals,
+        refs=v.refs,
+        temporaries=temporaries,
+        variable_data=variable_data,
+        import_workspace=ImportWorkspace(
+            is_import_block=is_import_block,
+            imported_defs=imported_defs,
+        ),
+        deleted_refs=v.deleted_refs,
+        language=v.language,
+        body=body,
+        last_expr=last_expr,
+        cell_id=cell_id,
+    )
+
+#+END_SRC
+** Function cell_factory
+#+BEGIN_SRC python
+def cell_factory(
+    f: Callable[..., Any],
+    cell_id: CellId_t,
+    anonymous_file: bool = False,
+) -> Cell:
+    """Creates a cell from a function.
+
+    The signature and returns of the function are not used
+    to generate refs and defs. If the user introduced errors to the
+    signature, marimo will autofix them on save.
+    """
+    code, lnum = inspect.getsourcelines(f)
+    function_code = textwrap.dedent("".join(code))
+
+    # tokenize to find the start of the function body, including
+    # comments --- we have to use tokenize because the ast treats the first
+    # line of code as the starting line of the function body, whereas we
+    # want the first indented line after the signature
+    tokens: Iterator[TokenInfo] = tokenize(
+        io.BytesIO(function_code.encode("utf-8")).readline
+    )
+
+    def_node: Optional[TokenInfo] = None
+    for token in tokens:
+        if token.type == token_types.NAME and token.string == "def":
+            def_node = token
+            break
+    assert def_node is not None
+
+    paren_counter: Optional[int] = None
+    for token in tokens:
+        if token.type == token_types.OP and token.string == "(":
+            paren_counter = 1 if paren_counter is None else paren_counter + 1
+        elif token.type == token_types.OP and token.string == ")":
+            assert paren_counter is not None
+            paren_counter -= 1
+
+        if paren_counter == 0:
+            break
+    assert paren_counter == 0
+
+    for token in tokens:
+        if token.type == token_types.OP and token.string == ":":
+            break
+
+    after_colon = next(tokens)
+    start_line: int
+    start_col: int
+    if after_colon.type == token_types.NEWLINE:
+        fn_body_token = next(tokens)
+        start_line = fn_body_token.start[0] - 1
+        start_col = 0
+    elif after_colon.type == token_types.COMMENT:
+        newline_token = next(tokens)
+        assert newline_token.type == token_types.NEWLINE
+        fn_body_token = next(tokens)
+        start_line = fn_body_token.start[0] - 1
+        start_col = 0
+    else:
+        # function body starts on same line as definition, such as in
+        # the following examples:
+        #
+        # def foo(): pass
+        #
+        # def foo(): x = 0; return x
+        #
+        # def foo(): x = """
+        #
+        # """; return x
+        fn_body_token = after_colon
+        start_line = fn_body_token.start[0] - 1
+        start_col = fn_body_token.start[1]
+
+    col_offset = fn_body_token.end[1] - start_col
+
+    # it would be difficult to tell if the last return token were in fact the
+    # last statement of the function body, so we use the ast, which lets us
+    # easily find the last statement of the function body;
+    tree = ast.parse(function_code)
+    return_node = (
+        tree.body[0].body[-1]  # type: ignore
+        if isinstance(tree.body[0].body[-1], ast.Return)  # type: ignore
+        else None
+    )
+
+    end_line, return_offset = (
+        (return_node.lineno - 1, return_node.col_offset)
+        if return_node is not None
+        else (None, None)
+    )
+
+    cell_code: str
+    lines = function_code.split("\n")
+    if start_line == end_line:
+        # remove leading indentation
+        cell_code = textwrap.dedent(lines[start_line][start_col:return_offset])
+    else:
+        first_line = lines[start_line][start_col:]
+        cell_code = textwrap.dedent(
+            "\n".join([first_line] + lines[start_line + 1 : end_line])
+        ).strip()
+        if end_line is not None and not lines[end_line].strip().startswith(
+            "return"
+        ):
+            # handle return written on same line as last statement in cell
+            cell_code += "\n" + lines[end_line][:return_offset]
+
+    # anonymous file is required for deterministic testing.
+    if not anonymous_file:
+        # Fallback won't capture embedded scripts
+        is_script = f.__globals__["__name__"] == "__main__"
+        # TODO: spec is None for markdown notebooks, which is fine for now
+        if module := inspect.getmodule(f):
+            spec = module.__spec__
+            is_script = spec is None or spec.name != "marimo_app"
+    else:
+        is_script = False
+    source_position = (
+        SourcePosition(
+            filename=f.__code__.co_filename,
+            lineno=lnum + start_line - 1,
+            col_offset=col_offset,
+        )
+        if is_script
+        else None
+    )
+
+    return Cell(
+        _name=f.__name__,
+        _cell=compile_cell(
+            cell_code, cell_id=cell_id, source_position=source_position
+        ),
+    )
+
+#+END_SRC
+* errors
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.errors
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/errors.py
+:END:
+** Class CycleError
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+class CycleError(Exception):
+    pass
+
+#+END_SRC
+** Class MultipleDefinitionError
+#+BEGIN_SRC python
+class MultipleDefinitionError(Exception):
+    pass
+
+#+END_SRC
+** Class DeleteNonlocalError
+#+BEGIN_SRC python
+class DeleteNonlocalError(Exception):
+    pass
+
+#+END_SRC
+** Class UnparsableError
+#+BEGIN_SRC python
+class UnparsableError(Exception):
+    pass
+
+#+END_SRC
+* sql_visitor
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.sql_visitor
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/sql_visitor.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import re
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
+
+from marimo import _loggers
+from marimo._dependencies.dependencies import DependencyManager
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Class SQLVisitor
+#+BEGIN_SRC python
+class SQLVisitor(ast.NodeVisitor):
+    """
+    Find any SQL queries in the AST.
+    This should be inside a function called `.execute` or `.sql`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._sqls: list[str] = []
+
+    def visit_Call(self, node: ast.Call) -> None:
+        # Check if the call is a method call and the method is named
+        # either 'execute' or 'sql'
+        if isinstance(node.func, ast.Attribute) and node.func.attr in (
+            "execute",
+            "sql",
+        ):
+            # Check if there are arguments and the first argument is a
+            # string or f-string
+            if node.args:
+                first_arg = node.args[0]
+                sql: Optional[str] = None
+                if isinstance(first_arg, ast.Constant):
+                    sql = first_arg.s
+                elif isinstance(first_arg, ast.JoinedStr):
+                    sql = normalize_sql_f_string(first_arg)
+
+                if sql is not None:
+                    # Append the SQL query to the list
+                    self._sqls.append(sql)
+        # Continue walking through the AST
+        self.generic_visit(node)
+
+    def get_sqls(self) -> list[str]:
+        return self._sqls
+
+#+END_SRC
+** Function normalize_sql_f_string
+#+BEGIN_SRC python
+def normalize_sql_f_string(node: ast.JoinedStr) -> str:
+    """
+    Normalize a f-string to a string by joining the parts.
+
+    We add placeholder for {...} expressions in the f-string.
+    This is so we can create a valid SQL query to be passed to
+    other utilities.
+    """
+
+    def print_part(part: ast.expr) -> str:
+        if isinstance(part, ast.FormattedValue):
+            return print_part(part.value)
+        elif isinstance(part, ast.JoinedStr):
+            return normalize_sql_f_string(part)
+        elif isinstance(part, ast.Constant):
+            return str(part.s)
+        else:
+            # Just add null as a placeholder for {...} expressions
+            return "null"
+
+    result = "".join(print_part(part) for part in node.values)
+    # remove any double '' created by the f-string
+    return result.replace("''", "'")
+
+#+END_SRC
+** Class TokenExtractor
+#+BEGIN_SRC python
+class TokenExtractor:
+    def __init__(self, sql_statement: str, tokens: list[Any]) -> None:
+        self.sql_statement = sql_statement
+        self.tokens = tokens
+
+    def token_str(self, i: int) -> str:
+        sql_statement, tokens = self.sql_statement, self.tokens
+        token = tokens[i]
+        start = token[0]
+
+        # If it starts with a quote, find the matching end quote
+        if sql_statement[start] == '"':
+            end = sql_statement.find('"', start + 1) + 1
+        elif sql_statement[start] == "'":
+            end = sql_statement.find("'", start + 1) + 1
+        elif sql_statement[start:].startswith("e'"):
+            start += 1
+            end = sql_statement.find("'", start + 1) + 1
+        else:
+            # For non-quoted tokens, find until space or comment
+            maybe_end = re.search(r"[\s\-/]", sql_statement[start:])
+            end = (
+                start + maybe_end.start() if maybe_end else len(sql_statement)
+            )
+            if i + 1 < len(tokens):
+                # For tokens squashed together e.g. '(select' or 'x);;'
+                # in (select * from x);;
+                end = min(end, tokens[i + 1][0])
+
+        return sql_statement[start:end]
+
+    def is_keyword(self, i: int, match: str) -> bool:
+        import duckdb
+
+        if self.tokens[i][1] != duckdb.token_type.keyword:
+            return False
+        return self.token_str(i).lower() == match
+
+    def strip_quotes(self, token: str) -> str:
+        if token.startswith('"') and token.endswith('"'):
+            return token.strip('"')
+        elif token.startswith("'") and token.endswith("'"):
+            return token.strip("'")
+        return token
+
+#+END_SRC
+** @dataclass: Class SQLDefs
+#+BEGIN_SRC python
+@dataclass
+class SQLDefs:
+    tables: list[str] = field(default_factory=list)
+    views: list[str] = field(default_factory=list)
+    schemas: list[str] = field(default_factory=list)
+    catalogs: list[str] = field(default_factory=list)
+
+    # The schemas referenced in the CREATE SQL statement
+    reffed_schemas: list[str] = field(default_factory=list)
+    # The catalogs referenced in the CREATE SQL statement
+    reffed_catalogs: list[str] = field(default_factory=list)
+
+#+END_SRC
+** Function find_sql_defs
+#+BEGIN_SRC python
+def find_sql_defs(sql_statement: str) -> SQLDefs:
+    """
+    Find the tables, views, schemas, and catalogs created/attached in a SQL statement.
+
+    This function uses the DuckDB tokenizer to find the tables created
+    and schemas attached in a SQL statement. It returns a list of the table
+    names created, views created, schemas created, and catalogs attached in the
+    statement.
+
+    Args:
+        sql_statement: The SQL statement to parse.
+
+    Returns:
+        SQLDefs
+    """
+    if not DependencyManager.duckdb.has():
+        return SQLDefs()
+
+    import duckdb
+
+    tokens = duckdb.tokenize(sql_statement)
+    token_extractor = TokenExtractor(
+        sql_statement=sql_statement, tokens=tokens
+    )
+    created_tables: list[str] = []
+    created_views: list[str] = []
+    created_schemas: list[str] = []
+    created_catalogs: list[str] = []
+
+    reffed_schemas: list[str] = []
+    reffed_catalogs: list[str] = []
+    i = 0
+
+    # See
+    #
+    #   https://duckdb.org/docs/sql/statements/create_table#syntax
+    #   https://duckdb.org/docs/sql/statements/create_view#syntax
+    #
+    # for the CREATE syntax, and
+    #
+    #   https://duckdb.org/docs/sql/statements/attach#attach-syntax
+    #
+    # for ATTACH syntax
+    while i < len(tokens):
+        if token_extractor.is_keyword(i, "create"):
+            # CREATE TABLE, CREATE VIEW, CREATE SCHEMA have the same syntax
+            i += 1
+            if i < len(tokens) and token_extractor.is_keyword(i, "or"):
+                i += 2  # Skip 'OR REPLACE'
+            if i < len(tokens) and (
+                token_extractor.is_keyword(i, "temporary")
+                or token_extractor.is_keyword(i, "temp")
+            ):
+                i += 1  # Skip 'TEMPORARY' or 'TEMP'
+
+            is_table = False
+            is_view = False
+            is_schema = False
+
+            if i < len(tokens) and (
+                (is_table := token_extractor.is_keyword(i, "table"))
+                or (is_view := token_extractor.is_keyword(i, "view"))
+                or (is_schema := token_extractor.is_keyword(i, "schema"))
+            ):
+                i += 1
+                if i < len(tokens) and token_extractor.is_keyword(i, "if"):
+                    i += 3  # Skip 'IF NOT EXISTS'
+                if i < len(tokens):
+                    # Get table name parts, this could be:
+                    # - catalog.schema.table
+                    # - catalog.table (this is shorthand for catalog.main.table)
+                    # - table
+
+                    parts: List[str] = []
+                    while i < len(tokens):
+                        part = token_extractor.strip_quotes(
+                            token_extractor.token_str(i)
+                        )
+                        parts.append(part)
+                        # next token is a dot, so we continue getting parts
+                        if (
+                            i + 1 < len(tokens)
+                            and token_extractor.token_str(i + 1) == "."
+                        ):
+                            i += 2
+                            continue
+                        break
+
+                    # Assert parts is either 1, 2, or 3
+                    if len(parts) not in (1, 2, 3):
+                        LOGGER.warning(
+                            "Unexpected number of parts in CREATE TABLE: %s",
+                            parts,
+                        )
+
+                    if is_table:
+                        # only add the table name
+                        created_tables.append(parts[-1])
+                        # add the catalog and schema if exist
+                        if len(parts) == 3:
+                            reffed_catalogs.append(parts[0])
+                            reffed_schemas.append(parts[1])
+                        if len(parts) == 2:
+                            reffed_catalogs.append(parts[0])
+                    elif is_view:
+                        # only add the table name
+                        created_views.append(parts[-1])
+                        # add the catalog and schema if exist
+                        if len(parts) == 3:
+                            reffed_catalogs.append(parts[0])
+                            reffed_schemas.append(parts[1])
+                        if len(parts) == 2:
+                            reffed_catalogs.append(parts[0])
+                    elif is_schema:
+                        # only add the schema name
+                        created_schemas.append(parts[-1])
+                        # add the catalog if exist
+                        if len(parts) == 2:
+                            reffed_catalogs.append(parts[0])
+        elif token_extractor.is_keyword(i, "attach"):
+            catalog_name = None
+            i += 1
+            if i < len(tokens) and token_extractor.is_keyword(i, "database"):
+                i += 1  # Skip 'DATABASE'
+            if i < len(tokens) and token_extractor.is_keyword(i, "if"):
+                i += 3  # Skip "IF NOT EXISTS"
+            if i < len(tokens):
+                catalog_name = token_extractor.strip_quotes(
+                    token_extractor.token_str(i)
+                )
+                if "." in catalog_name:
+                    # e.g. "db.sqlite"
+                    # strip the extension from the name
+                    catalog_name = catalog_name.split(".")[0]
+                if ":" in catalog_name:
+                    # e.g. "md:my_db"
+                    # split on ":" and take the second part
+                    catalog_name = catalog_name.split(":")[1]
+            if i + 1 < len(tokens) and token_extractor.is_keyword(i + 1, "as"):
+                # Skip over database-path 'AS'
+                i += 2
+                # AS clause gets precedence in creating database
+                if i < len(tokens):
+                    catalog_name = token_extractor.strip_quotes(
+                        token_extractor.token_str(i)
+                    )
+            if catalog_name is not None:
+                created_catalogs.append(catalog_name)
+
+        i += 1
+
+    # Remove 'memory' from catalogs, as this is the default and doesn't have a def
+    if "memory" in reffed_catalogs:
+        reffed_catalogs.remove("memory")
+    # Remove 'main' from schemas, as this is the default and doesn't have a def
+    if "main" in reffed_schemas:
+        reffed_schemas.remove("main")
+
+    return SQLDefs(
+        tables=created_tables,
+        views=created_views,
+        schemas=created_schemas,
+        catalogs=created_catalogs,
+        reffed_schemas=reffed_schemas,
+        reffed_catalogs=reffed_catalogs,
+    )
+
+#+END_SRC
+** Function find_sql_refs
+#+BEGIN_SRC python
+# TODO(akshayka): there are other kinds of refs to find; this should be
+# find_sql_refs
+def find_sql_refs(
+    sql_statement: str,
+) -> list[str]:
+    """
+    Find table and schema references in a SQL statement.
+
+    Args:
+        sql_statement: The SQL statement to parse.
+
+    Returns:
+        A list of table and schema names referenced in the statement.
+    """
+    if not DependencyManager.duckdb.has():
+        return []
+
+    import duckdb
+
+    tokens = duckdb.tokenize(sql_statement)
+    token_extractor = TokenExtractor(
+        sql_statement=sql_statement, tokens=tokens
+    )
+    refs: list[str] = []
+    cte_names: set[str] = set()
+    i = 0
+
+    # First pass - collect CTE names
+    while i < len(tokens):
+        if token_extractor.is_keyword(i, "with"):
+            i += 1
+            # Handle optional parenthesis after WITH
+            if token_extractor.token_str(i) == "(":
+                i += 1
+            while i < len(tokens):
+                if token_extractor.is_keyword(i, "select"):
+                    break
+                if (
+                    token_extractor.token_str(i) == ","
+                    or token_extractor.token_str(i) == "("
+                ):
+                    i += 1
+                    continue
+                cte_name = token_extractor.strip_quotes(
+                    token_extractor.token_str(i)
+                )
+                if not token_extractor.is_keyword(i, "as"):
+                    cte_names.add(cte_name)
+                i += 1
+                if token_extractor.is_keyword(i, "as"):
+                    break
+        i += 1
+
+    # Second pass - collect references excluding CTEs
+    i = 0
+    while i < len(tokens):
+        if token_extractor.is_keyword(i, "from") or token_extractor.is_keyword(
+            i, "join"
+        ):
+            i += 1
+            if i < len(tokens):
+                # Skip over opening parenthesis for subqueries
+                if token_extractor.token_str(i) == "(":
+                    continue
+
+                # Get table name parts, this could be:
+                # - catalog.schema.table
+                # - catalog.table (this is shorthand for catalog.main.table)
+                # - table
+
+                parts: List[str] = []
+                while i < len(tokens):
+                    part = token_extractor.strip_quotes(
+                        token_extractor.token_str(i)
+                    )
+                    parts.append(part)
+                    # next token is a dot, so we continue getting parts
+                    if (
+                        i + 1 < len(tokens)
+                        and token_extractor.token_str(i + 1) == "."
+                    ):
+                        i += 2
+                        continue
+                    break
+
+                if len(parts) == 3:
+                    # If its the default in-memory catalog,
+                    # only add the table name
+                    if parts[0] == "memory":
+                        refs.append(parts[2])
+                    else:
+                        # Just add the catalog and table, skip schema
+                        refs.extend([parts[0], parts[2]])
+                elif len(parts) == 2:
+                    # If its the default in-memory catalog, only add the table
+                    if parts[0] == "memory":
+                        refs.append(parts[1])
+                    else:
+                        # It's a catalog and table, add both
+                        refs.extend(parts)
+                elif len(parts) == 1:
+                    # It's a table, make sure it's not a CTE
+                    if parts[0] not in cte_names:
+                        refs.append(parts[0])
+                else:
+                    LOGGER.warning(
+                        "Unexpected number of parts in SQL reference: %s",
+                        parts,
+                    )
+
+                i -= 1  # Compensate for outer loop increment
+        i += 1
+
+    # Re-use find_sql_defs to find referenced schemas and catalogs during creation.
+    defs = find_sql_defs(sql_statement)
+    refs.extend(defs.reffed_schemas)
+    refs.extend(defs.reffed_catalogs)
+
+    # Remove duplicates while preserving order
+    return list(dict.fromkeys(refs))
+
+#+END_SRC
+* transformers
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.transformers
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/transformers.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+from typing import Any
+
+#+END_SRC
+** Class NameTransformer
+#+BEGIN_SRC python
+class NameTransformer(ast.NodeTransformer):
+    def __init__(self, name_substitutions: dict[str, str]) -> None:
+        self._name_substitutions = name_substitutions
+        self.made_changes = False
+        super().__init__()
+
+    def visit_Name(self, node: ast.Name) -> ast.Name:
+        if node.id in self._name_substitutions:
+            self.made_changes = True
+            return ast.Name(
+                **{**node.__dict__, "id": self._name_substitutions[node.id]}
+            )
+        return node
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        if node.name in self._name_substitutions:
+            self.made_changes = True
+            return ast.FunctionDef(
+                **{
+                    **node.__dict__,
+                    "name": self._name_substitutions[node.name],
+                }
+            )
+        return node
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
+        if node.name in self._name_substitutions:
+            self.made_changes = True
+            return ast.ClassDef(
+                **{
+                    **node.__dict__,
+                    "name": self._name_substitutions[node.name],
+                }
+            )
+        return node
+
+    def visit_Assign(self, node: ast.Assign) -> ast.Assign:
+        new_targets: list[Any] = []
+        for target in node.targets:
+            if (
+                isinstance(target, ast.Name)
+                and target.id in self._name_substitutions
+            ):
+                self.made_changes = True
+                new_targets.append(
+                    ast.Name(
+                        id=self._name_substitutions[target.id], ctx=ast.Store()
+                    )
+                )
+            else:
+                new_targets.append(target)
+        return ast.Assign(
+            **{
+                **node.__dict__,
+                "targets": new_targets,
+            }
+        )
+
+#+END_SRC
+* visitor
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._ast.visitor
+:header-args: :tangle /Users/jingtao/projects/marimo/marimo/_ast/visitor.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import ast
+import itertools
+import sys
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Callable, Literal, Optional, Set, Union
+from uuid import uuid4
+
+from marimo import _loggers
+from marimo._ast.sql_visitor import (
+    SQLDefs,
+    find_sql_defs,
+    find_sql_refs,
+    normalize_sql_f_string,
+)
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._utils.variables import is_local
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Assignment Name = str
+#+BEGIN_SRC python
+Name = str
+
+#+END_SRC
+** Assignment Language = Literal["python", "sql"]
+#+BEGIN_SRC python
+Language = Literal["python", "sql"]
+
+#+END_SRC
+** @dataclass: Class ImportData
+#+BEGIN_SRC python
+@dataclass
+class ImportData:
+    # full module name
+    # e.g., a.b.c.
+    module: str
+    # variable name
+    definition: str
+    # fully qualified import symbol:
+    # import a.b => symbol == None
+    # from a.b import c => symbol == a.b.c
+    imported_symbol: Optional[str] = None
+    import_level: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        self.namespace = self.module.split(".")[0]
+
+#+END_SRC
+** @dataclass: Class VariableData
+#+BEGIN_SRC python
+@dataclass
+class VariableData:
+    # "table", "view", "schema", and "catalog" are SQL variables, not Python.
+    kind: Literal[
+        "function",
+        "class",
+        "import",
+        "variable",
+        "table",
+        "view",
+        "schema",
+        "catalog",
+    ] = "variable"
+
+    # If kind == function or class, it may be dependent on externally defined
+    # variables.
+    #
+    # NB: This is populated by `ScopedVisitor.ref_stack`. Ref stack holds the
+    # references required for the current context, it's more general than a
+    # "block", since it covers all variable level interactions.
+    # e.g.
+    # >> x = foo + bar
+    # x has the required refs foo and bar, and ref_stack holds that context
+    # while traversing the tree.
+    required_refs: set[Name] = field(default_factory=set)
+
+    # For kind == import
+    import_data: Optional[ImportData] = None
+
+    @property
+    def language(self) -> Language:
+        return (
+            "sql"
+            if (
+                self.kind == "table"
+                or self.kind == "schema"
+                or self.kind == "view"
+                or self.kind == "catalog"
+            )
+            else "python"
+        )
+
+#+END_SRC
+** @dataclass: Class Block
+#+BEGIN_SRC python
+@dataclass
+class Block:
+    """A scope in which names are declared."""
+
+    # Defined names
+    defs: set[Name] = field(default_factory=set)
+    # Names defined with the global keyword
+    global_names: set[Name] = field(default_factory=set)
+    # Map from defined names to metadata about their variables
+    variable_data: dict[Name, list[VariableData]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+    # Comprehensions have special scoping rules
+    is_comprehension: bool = False
+
+    def is_defined(self, name: str) -> bool:
+        return any(name == defn for defn in self.defs)
+
+#+END_SRC
+** @dataclass: Class ObscuredScope
+#+BEGIN_SRC python
+@dataclass
+class ObscuredScope:
+    """The scope in which a name is hidden."""
+
+    # Variable id if this block hides a name
+    obscured: Optional[str] = None
+
+#+END_SRC
+** @dataclass: Class RefData
+#+BEGIN_SRC python
+@dataclass
+class RefData:
+    """Metadata about variables referenced but not defined by a cell."""
+
+    # Whether the ref was deleted
+    deleted: bool
+    # Ancestors of the block in which this ref was used
+    parent_blocks: list[Block]
+
+#+END_SRC
+** Assignment NamedNode
+#+BEGIN_SRC python
+NamedNode = Union[
+    ast.Name,
+    ast.ClassDef,
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.arg,
+    ast.Global,
+    "ast.MatchAs",  # type: ignore
+    "ast.MatchMapping",  # type: ignore
+    "ast.MatchStar",  # type: ignore
+    "ast.TypeVar",  # type: ignore
+    "ast.ParamSpec",  # type: ignore
+    "ast.TypeVarTuple",  # type: ignore
+]
+
+#+END_SRC
+** Class ScopedVisitor
+#+BEGIN_SRC python
+class ScopedVisitor(ast.NodeVisitor):
+    def __init__(
+        self,
+        mangle_prefix: Optional[str] = None,
+        ignore_local: bool = False,
+        on_def: Callable[[NamedNode, str, list[Block]], None] | None = None,
+        on_ref: Callable[[NamedNode], None] | None = None,
+    ) -> None:
+        self.block_stack: list[Block] = [Block()]
+        # Names to be loaded into a variable required_refs
+        self.ref_stack: list[set[Name]] = [set()]
+        self.obscured_scope_stack: list[ObscuredScope] = []
+        # Mapping from referenced names to their metadata
+        self._refs: dict[Name, RefData] = {}
+        # Function (node, name, block stack) -> None
+        self._on_def = on_def if on_def is not None else lambda *_: None
+        # Function (node) -> None
+        self._on_ref = on_ref if on_ref is not None else lambda *_: None
+        # Unique prefix used to mangle cell-local variable names
+        self.id = (
+            str(uuid4()).replace("-", "_")
+            if mangle_prefix is None
+            else mangle_prefix
+        )
+        self.is_local = (lambda _: False) if ignore_local else is_local
+        self.language: Language = "python"
+
+    @property
+    def defs(self) -> set[Name]:
+        """Get all global defs."""
+        return self.block_stack[0].defs
+
+    @property
+    def variable_data(self) -> dict[Name, list[VariableData]]:
+        """Get data accompanying globals."""
+        return self.block_stack[0].variable_data
+
+    @property
+    def refs(self) -> set[Name]:
+        """Names referenced but not defined."""
+        return set(self._refs.keys())
+
+    @property
+    def deleted_refs(self) -> set[Name]:
+        """Referenced names that were deleted with `del`."""
+        return set(name for name in self._refs if self._refs[name].deleted)
+
+    def _if_local_then_mangle(
+        self, name: str, ignore_scope: bool = False
+    ) -> str:
+        """Mangle local variable name declared at top-level scope."""
+        if self.is_local(name) and (
+            len(self.block_stack) == 1 or ignore_scope
+        ):
+            return f"_{self.id}{name}"
+        else:
+            return name
+
+    def _get_alias_name(self, node: ast.alias) -> str:
+        """Get the string name of an imported alias.
+
+        Mangles the "as" name if it's a local variable.
+
+        NB: We disallow `import *` because Python only allows
+        star imports at module-level, but we store cells as functions.
+        """
+        if node.asname is None:
+            # Imported name without an "as" clause. Examples:
+            #   import [a.b.c] - we define a
+            #   from foo import [a] - we define a
+            #   from foo import [*] - we don't define anything
+            #
+            # Note:
+            # Don't mangle - user has no control over package name
+            basename = node.name.split(".")[0]
+            if basename == "*":
+                line = (
+                    f"line {node.lineno}"
+                    if hasattr(node, "lineno")
+                    else "line ..."
+                )
+                raise SyntaxError(
+                    f"{line} SyntaxError: `import *` is not allowed in marimo."
+                )
+            return basename
+        else:
+            node.asname = self._if_local_then_mangle(node.asname)
+            return node.asname
+
+    def _is_defined(self, identifier: str) -> bool:
+        """Check if `identifier` is defined in any block."""
+        return any(block.is_defined(identifier) for block in self.block_stack)
+
+    def _add_ref(
+        self, node: NamedNode | None, name: Name, deleted: bool
+    ) -> None:
+        """Register a referenced name."""
+        self._refs[name] = RefData(
+            deleted=deleted,
+            parent_blocks=self.block_stack[:-1],
+        )
+        self.ref_stack[-1].add(name)
+        if node is not None:
+            self._on_ref(node)
+
+    def _remove_ref(self, name: Name) -> None:
+        """Remove a referenced name."""
+        del self._refs[name]
+
+    def _define_in_block(
+        self, name: Name, variable_data: VariableData, block_idx: int
+    ) -> None:
+        """Define a name in a given block."""
+
+        self.block_stack[block_idx].defs.add(name)
+        self.block_stack[block_idx].variable_data[name].append(variable_data)
+        # If `name` is added to the top-level block, it is also evicted from
+        # any captured refs (if present) --- this handles cases where a name is
+        # encountered and captured before it is declared, such as in
+        #
+        # ```
+        # def f():
+        #   print(x)
+        # x = 0
+        # ```
+        if (
+            name in self._refs
+            and self.block_stack[block_idx] in self._refs[name].parent_blocks
+        ):
+            # `name` was used as a capture, not a reference
+            self._remove_ref(name)
+
+    def _define(
+        self, node: NamedNode | None, name: Name, variable_data: VariableData
+    ) -> None:
+        """Define a name in the current block.
+
+        Names created with the global keyword are added to the top-level
+        (global scope) block.
+        """
+        block_idx = 0 if name in self.block_stack[-1].global_names else -1
+        self._define_in_block(name, variable_data, block_idx=block_idx)
+        if node is not None:
+            self._on_def(node, name, self.block_stack)
+
+    def _push_block(self, is_comprehension: bool) -> None:
+        """Push a block onto the block stack."""
+        self.block_stack.append(Block(is_comprehension=is_comprehension))
+
+    def _pop_block(self) -> None:
+        """Pop a block from the block stack."""
+        self.block_stack.pop()
+
+    def _push_obscured_scope(self, obscured: Optional[str]) -> None:
+        """Push scope onto the stack."""
+        self.obscured_scope_stack.append(ObscuredScope(obscured=obscured))
+
+    def _pop_obscured_scope(self) -> None:
+        """Pop scope from the stack."""
+        self.obscured_scope_stack.pop()
+
+    def generic_visit(self, node: ast.AST) -> ast.AST:
+        """Visits the children of node and manages the block stack.
+
+        Note: visit calls visit_ClassName, or generic_visit() if the former
+        doesn't exist. That means that _this method should never call
+        visit on `node`_, as this could lead to unbounded recursion.
+        (Calling visit on `node`'s children is fine.) In summary:
+        call super().generic_visit on `node` and `visit()` on node's children.
+        """
+        if isinstance(node, (ast.ClassDef, ast.Lambda)):
+            # These AST nodes introduce a new scope, but otherwise do not
+            # require special treatment.
+            self._push_block(is_comprehension=False)
+            super().generic_visit(node)
+            self._pop_block()
+        elif isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+            self._push_block(is_comprehension=False)
+            if sys.version_info >= (3, 12):
+                # We need to visit generic type parameters before arguments
+                # to make sure type parameters don't get added as refs. eg, in
+                #
+                #   def foo[U](u: U) -> U: ...
+                #
+                # `U` should not be a ref
+                for child in node.type_params:
+                    self.visit(child)
+            # This will revisit the type_params, but that's okay because
+            # visiting is idempotent
+            super().generic_visit(node)
+            self._pop_block()
+        elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+            # In comprehensions, generators must be visited before elements
+            # because generators define local targets that elements may use.
+            self._push_block(is_comprehension=True)
+            for generator in node.generators:
+                self.visit(generator)
+            self.visit(node.elt)
+            self._pop_block()
+        elif isinstance(node, ast.DictComp):
+            # Special-cased for the same reason that other comprehensions are
+            # special-cased.
+            self._push_block(is_comprehension=True)
+            for generator in node.generators:
+                self.visit(generator)
+            self.visit(node.value)
+            self.visit(node.key)
+            self._pop_block()
+        elif isinstance(node, ast.Try) or (
+            sys.version_info >= (3, 11) and isinstance(node, ast.TryStar)
+        ):
+            if sys.version_info < (3, 11):
+                assert isinstance(node, ast.Try)
+            # "Try" nodes have "handlers" that introduce exception context
+            # variables that are tied to the try block, and don't exist beyond
+            # it.
+            for stmt in node.body:
+                self.visit(stmt)
+            for handler in node.handlers:
+                self._push_obscured_scope(obscured=handler.name)
+                self.visit(handler)
+                self._pop_obscured_scope()
+            for stmt in node.orelse:
+                self.visit(stmt)
+            for stmt in node.finalbody:
+                self.visit(stmt)
+        elif sys.version_info >= (3, 12) and isinstance(node, ast.TypeAlias):
+            self.visit(node.name)
+            self._push_block(is_comprehension=False)
+            for t in node.type_params:
+                self.visit(t)
+            self.visit(node.value)
+            self._pop_block()
+        else:
+            # Other nodes that don't introduce a new scope
+            super().generic_visit(node)
+        return node
+
+    def _visit_and_get_refs(self, node: ast.AST) -> set[Name]:
+        """Create a ref scope for the variable to be declared (e.g. function,
+        class), visit the children the node, propagate the refs to the higher
+        scope and then return the refs."""
+        self.ref_stack.append(set())
+        self.generic_visit(node)
+        refs = self.ref_stack.pop()
+        # The scope a level up from the one just investigated also is dependent
+        # on these refs. Consider the case:
+        # >> def foo():
+        # >>   def bar(): <- current scope
+        # >>     print(x)
+        #
+        # the variable `foo` needs to be aware that it may require the ref `x`
+        # during execution.
+        self.ref_stack[-1].update(refs)
+        return refs
+
+    # ClassDef and FunctionDef nodes don't have ast.Name nodes as children
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
+        node.name = self._if_local_then_mangle(node.name)
+        refs = self._visit_and_get_refs(node)
+        self._define(
+            node,
+            node.name,
+            VariableData(kind="class", required_refs=refs),
+        )
+        return node
+
+    def visit_AsyncFunctionDef(
+        self, node: ast.AsyncFunctionDef
+    ) -> ast.AsyncFunctionDef:
+        node.name = self._if_local_then_mangle(node.name)
+        refs = self._visit_and_get_refs(node)
+        self._define(
+            node,
+            node.name,
+            VariableData(kind="function", required_refs=refs),
+        )
+        return node
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        node.name = self._if_local_then_mangle(node.name)
+        refs = self._visit_and_get_refs(node)
+        self._define(
+            node,
+            node.name,
+            VariableData(kind="function", required_refs=refs),
+        )
+        return node
+
+    def visit_Call(self, node: ast.Call) -> ast.Call:
+        # If the call name is sql and has one argument, and the argument is
+        # a string literal, then it's likely to be a SQL query.
+        # It must also come from the `mo` or `duckdb` module.
+        #
+        # This check is brittle, since we can't detect at parse time whether
+        # 'mo'/'marimo' actually refer to the marimo library, but it gets
+        # the job done.
+        valid_sql_calls = [
+            "marimo.sql",
+            "mo.sql",
+            "duckdb.execute",
+            "duckdb.sql",
+        ]
+        if (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and f"{node.func.value.id}.{node.func.attr}" in valid_sql_calls
+            and len(node.args) == 1
+        ):
+            self.language = "sql"
+            first_arg = node.args[0]
+            sql: Optional[str] = None
+            if isinstance(first_arg, ast.Constant):
+                sql = first_arg.s
+            elif isinstance(first_arg, ast.JoinedStr):
+                sql = normalize_sql_f_string(first_arg)
+
+            if (
+                isinstance(sql, str)
+                and DependencyManager.duckdb.has_at_version(
+                    min_version="1.0.0"
+                )
+                and sql
+            ):
+                import duckdb  # type: ignore[import-not-found,import-untyped,unused-ignore] # noqa: E501
+
+                # Add all tables in the query to the ref scope
+                try:
+                    # TODO: This function raises a CatalogError on CREATE VIEW
+                    # statements that reference tables that are not yet
+                    # defined, such
+                    #
+                    # as CREATE OR REPLACE VIEW my_view as SELECT * from my_df
+                    #
+                    # This breaks dependency parsing.
+                    statements = duckdb.extract_statements(sql)
+                except (duckdb.ProgrammingError, duckdb.IOException):
+                    # The user's sql query may have a syntax error,
+                    # or duckdb failed for an unknown reason; don't
+                    # break marimo.
+                    self.generic_visit(node)
+                    return node
+                except BaseException as e:
+                    # We catch base exceptions because we don't want to
+                    # fail due to bugs in duckdb -- users code should
+                    # be saveable no matter what
+                    LOGGER.warning("Unexpected duckdb error %s", e)
+                    self.generic_visit(node)
+                    return node
+
+                for statement in statements:
+                    tables: Set[str] = set()
+                    from_targets: list[str] = []
+                    # Parse the refs and defs of each statement
+                    try:
+                        tables = duckdb.get_table_names(statement.query)
+                    except (duckdb.ProgrammingError, duckdb.IOException):
+                        LOGGER.debug(
+                            "Error parsing SQL statement: %s", statement.query
+                        )
+                    except BaseException as e:
+                        LOGGER.warning("Unexpected duckdb error %s", e)
+                    try:
+                        # TODO(akshayka): more comprehensive parsing
+                        # of the statement -- schemas can show up in
+                        # joins, queries, ...
+                        from_targets = find_sql_refs(statement.query)
+                    except (duckdb.ProgrammingError, duckdb.IOException):
+                        LOGGER.debug(
+                            "Error parsing SQL statement: %s", statement.query
+                        )
+                    except BaseException as e:
+                        LOGGER.warning("Unexpected duckdb error %s", e)
+
+                    for name in itertools.chain(tables, from_targets):
+                        # Name (table, db) may be a URL or something else that
+                        # isn't a Python variable
+                        if name.isidentifier():
+                            self._add_ref(None, name, deleted=False)
+
+                    # Add all tables/dbs created in the query to the defs
+                    try:
+                        sql_defs = find_sql_defs(sql)
+                    except duckdb.ProgrammingError:
+                        sql_defs = SQLDefs()
+                    except BaseException as e:
+                        LOGGER.warning("Unexpected duckdb error %s", e)
+                        sql_defs = SQLDefs()
+
+                    for _table in sql_defs.tables:
+                        self._define(None, _table, VariableData("table"))
+                    for _view in sql_defs.views:
+                        self._define(None, _view, VariableData("view"))
+                    for _schema in sql_defs.schemas:
+                        self._define(None, _schema, VariableData("schema"))
+                    for _catalog in sql_defs.catalogs:
+                        self._define(None, _catalog, VariableData("catalog"))
+
+        # Visit arguments, keyword args, etc.
+        self.generic_visit(node)
+        return node
+
+    def visit_Lambda(self, node: ast.Lambda) -> ast.Lambda:
+        # Inject the dummy name `_lambda` into ref scope to denote there's a
+        # callable that might require additional refs.
+        self.ref_stack[-1].add("_lambda")
+        self.generic_visit(node)
+        return node
+
+    def visit_arg(self, node: ast.arg) -> ast.arg:
+        node.arg = self._if_local_then_mangle(node.arg)
+        self._define(node, node.arg, VariableData(kind="variable"))
+        if node.annotation is not None:
+            self.visit(node.annotation)
+        return node
+
+    def visit_arguments(self, node: ast.arguments) -> ast.arguments:
+        # process potential refs before defs, to handle patterns like
+        #
+        # def f(x=x):
+        #   ...
+        for v in node.kw_defaults:
+            if v is not None:
+                self.visit(v)
+        for v in node.defaults:
+            if v is not None:
+                self.visit(v)
+
+        for arg in node.posonlyargs:
+            self.visit(arg)
+        for arg in node.args:
+            self.visit(arg)
+        for arg in node.kwonlyargs:
+            self.visit(arg)
+        if node.vararg is not None:
+            self.visit(node.vararg)
+        if node.kwarg is not None:
+            self.visit(node.kwarg)
+        return node
+
+    def visit_Assign(self, node: ast.Assign) -> ast.Assign:
+        # Visit the value first, to handle cases like
+        #
+        # class A:
+        #   x = x
+        #
+        # Handling value first is required to register `x` as a ref.
+        self.ref_stack.append(set())
+        self.visit(node.value)
+        for target in node.targets:
+            self.visit(target)
+        refs = self.ref_stack.pop()
+        self.ref_stack[-1].update(refs)
+        return node
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> ast.AugAssign:
+        # Augmented assign (has op)
+        # e.g., x += 1
+        self.ref_stack.append(set())
+        self.visit(node.value)
+        self.visit(node.target)
+        refs = self.ref_stack.pop()
+        self.ref_stack[-1].update(refs)
+        return node
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> ast.AnnAssign:
+        # Annotated assign
+        # e.g., x: int = 0
+        self.ref_stack.append(set())
+        if node.value is not None:
+            self.visit(node.value)
+        self.visit(node.annotation)
+        self.visit(node.target)
+        refs = self.ref_stack.pop()
+        self.ref_stack[-1].update(refs)
+        return node
+
+    def visit_comprehension(
+        self, node: ast.comprehension
+    ) -> ast.comprehension:
+        # process potential refs before defs, to handle patterns like
+        #
+        # [ ... for x in x]
+        #
+        # In defining scoping, Python parses iter first, then target, then ifs
+        self.visit(node.iter)
+        self.visit(node.target)
+        for _if in node.ifs:
+            self.visit(_if)
+        return node
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> ast.NamedExpr:
+        self.visit(node.value)
+        if self.block_stack[-1].is_comprehension and isinstance(
+            node.target, ast.Name
+        ):
+            for block_idx, block in reversed(
+                list(enumerate(self.block_stack))
+            ):
+                # go up the block stack until we find the first
+                # non-comprehension block
+                if not block.is_comprehension:
+                    node.target.id = self._if_local_then_mangle(
+                        node.target.id,
+                        ignore_scope=(block == self.block_stack[0]),
+                    )
+                    self._define_in_block(
+                        node.target.id,
+                        VariableData(kind="variable"),
+                        block_idx=block_idx,
+                    )
+                    break
+        else:
+            self.generic_visit(node)
+        return node
+
+    def visit_Name(self, node: ast.Name) -> ast.Name:
+        # NB: AugAssign has a Store ctx; this means that mutating a var
+        # will create a def, which we can catch as an error later if
+        # that var was defined by another cell
+        #
+        # NB: Only mangle loaded or deleted names if they are local
+        # and found to be referring to a top-level variable. This prevents
+        # us from mangling references to variables names conforming to local
+        # spec but declared in a nested scope.
+        #
+        # NB: we don't implement visit_Attribute because refs and defs
+        # are not tracked at the attribute level. The default behavior
+        # with our implemented visitors does the right thing (foo.bar[.*]
+        # generates a ref to foo if foo has not been def'd).
+        #
+        # NB: Nodes like "Try" nodes introduce variable names that do not exist
+        # beyond their inner scope. We traverse blocks to see if the name is
+        # "obscured" in this way.
+
+        for scope in self.obscured_scope_stack:
+            if node.id == scope.obscured:
+                self.generic_visit(node)
+                return node
+
+        if isinstance(node.ctx, ast.Store):
+            node.id = self._if_local_then_mangle(node.id)
+            self._define(
+                node,
+                node.id,
+                VariableData(
+                    kind="variable", required_refs=self.ref_stack[-1]
+                ),
+            )
+        elif (
+            isinstance(node.ctx, ast.Load)
+            and not self._is_defined(node.id)
+            and not self.is_local(node.id)
+        ):
+            self._add_ref(node, node.id, deleted=False)
+        elif (
+            isinstance(node.ctx, ast.Del)
+            and not self._is_defined(node.id)
+            and not self.is_local(node.id)
+        ):
+            self._add_ref(node, node.id, deleted=True)
+        elif self.is_local(node.id):
+            mangled_name = self._if_local_then_mangle(
+                node.id, ignore_scope=True
+            )
+            for block in reversed(self.block_stack):
+                if block == self.block_stack[0] and block.is_defined(
+                    mangled_name
+                ):
+                    node.id = mangled_name
+                elif block.is_defined(node.id):
+                    break
+        else:
+            # Not a reference; ast.Load, ast.Del on a variable that's already
+            # defined; invoke the callback
+            if node is not None:
+                self._on_def(node, node.id, self.block_stack)
+
+        # Handle refs on the block scope level, or capture cell level
+        # references.
+        if (
+            isinstance(node.ctx, ast.Load)
+            and self._is_defined(node.id)
+            and node.id not in self.ref_stack[-1]
+            and (
+                node.id not in self.block_stack[-1].defs
+                or len(self.block_stack) == 1
+            )
+        ):
+            self.ref_stack[-1].add(node.id)
+
+        self.generic_visit(node)
+        return node
+
+    def visit_Global(self, node: ast.Global) -> ast.Global:
+        node.names = [
+            self._if_local_then_mangle(name, ignore_scope=True)
+            for name in node.names
+        ]
+        for name in node.names:
+            self.block_stack[-1].global_names.add(name)
+            self._add_ref(node, name, deleted=False)
+        return node
+
+    def visit_Import(self, node: ast.Import) -> ast.Import:
+        for alias_node in node.names:
+            variable_name = self._get_alias_name(alias_node)
+            self._define(
+                None,
+                variable_name,
+                VariableData(
+                    kind="import",
+                    import_data=ImportData(
+                        module=alias_node.name,
+                        definition=variable_name,
+                        imported_symbol=None,
+                    ),
+                ),
+            )
+        return node
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> ast.ImportFrom:
+        module = node.module if node.module is not None else ""
+        # we don't recurse into the alias nodes, since we define the
+        # aliases here
+        for alias_node in node.names:
+            variable_name = self._get_alias_name(alias_node)
+            original_name = alias_node.name
+            self._define(
+                None,
+                variable_name,
+                VariableData(
+                    kind="import",
+                    import_data=ImportData(
+                        module=module,
+                        definition=variable_name,
+                        imported_symbol=module + "." + original_name,
+                        import_level=node.level,
+                    ),
+                ),
+            )
+        return node
+
+    if sys.version_info >= (3, 10):
+        # Match statements were introduced in Python 3.10
+        #
+        # Top-level match statements are awkward in marimo --- at parse-time,
+        # we have to register all names in every case/pattern as globals (since
+        # we don't know the value of the match subject), even though only a
+        # subset of the names will be bound at runtime. For this reason, in
+        # marimo, match statements should really only be used in local scopes.
+        def visit_MatchAs(self, node: ast.MatchAs) -> ast.MatchAs:
+            if node.name is not None:
+                node.name = self._if_local_then_mangle(node.name)
+                self._define(
+                    node,
+                    node.name,
+                    VariableData(kind="variable"),
+                )
+            if node.pattern is not None:
+                # pattern may contain additional MatchAs statements in it
+                self.visit(node.pattern)
+            return node
+
+        def visit_MatchMapping(
+            self, node: ast.MatchMapping
+        ) -> ast.MatchMapping:
+            if node.rest is not None:
+                node.rest = self._if_local_then_mangle(node.rest)
+                self._define(
+                    node,
+                    node.rest,
+                    VariableData(kind="variable"),
+                )
+            for key in node.keys:
+                self.visit(key)
+            for pattern in node.patterns:
+                self.visit(pattern)
+            return node
+
+        def visit_MatchStar(self, node: ast.MatchStar) -> ast.MatchStar:
+            if node.name is not None:
+                node.name = self._if_local_then_mangle(node.name)
+                self._define(
+                    node,
+                    node.name,
+                    VariableData(kind="variable"),
+                )
+            return node
+
+    if sys.version_info >= (3, 12):
+
+        def visit_TypeVar(self, node: ast.TypeVar) -> ast.TypeVar:
+            # node.name is a str, not an ast.Name node
+            self._define(
+                node,
+                node.name,
+                VariableData(
+                    kind="variable", required_refs=self.ref_stack[-1]
+                ),
+            )
+            if isinstance(node.bound, tuple):
+                for name in node.bound:
+                    self.visit(name)
+            elif node.bound is not None:
+                self.visit(node.bound)
+            return node
+
+        def visit_ParamSpec(self, node: ast.ParamSpec) -> ast.ParamSpec:
+            # node.name is a str, not an ast.Name node
+            self._define(
+                node,
+                node.name,
+                VariableData(
+                    kind="variable", required_refs=self.ref_stack[-1]
+                ),
+            )
+            return node
+
+        def visit_TypeVarTuple(
+            self, node: ast.TypeVarTuple
+        ) -> ast.TypeVarTuple:
+            # node.name is a str, not an ast.Name node
+            self._define(
+                node,
+                node.name,
+                VariableData(
+                    kind="variable", required_refs=self.ref_stack[-1]
+                ),
+            )
+            return node
+
+#+END_SRC

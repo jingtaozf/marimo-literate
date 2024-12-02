@@ -1,0 +1,1277 @@
+ -*- Mode: POLY-ORG ;  indent-tabs-mode: nil; lsp-diagnostics-provider: :none -*- ---
+#+Title: ast
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE marimo
+#+PROPERTY: LITERATE_ORG_LANGUAGE python
+#+PROPERTY: LITERATE_ORG_ROOT_MODULE_PATH ~/projects/marimo
+#+PROPERTY: LITERATE_ORG_MODULE_CREATE_METHOD import
+* __init
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo.__init__
+:header-args: :tangle ~/projects/marimo/marimo/__init__.py
+:END:
+** Docstring
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+"""The marimo library.
+
+The marimo library brings marimo notebooks to life with powerful
+UI elements to interact with and transform data, dynamic markdown,
+and more.
+
+marimo is designed to be:
+
+    1. simple
+    2. immersive
+    3. interactive
+    4. seamless
+    5. fun
+"""
+
+#+END_SRC
+** Assignment __all__
+#+BEGIN_SRC python
+from __future__ import annotations
+
+__all__ = [
+    # Core API
+    "App",
+    "Cell",
+    "create_asgi_app",
+    "MarimoIslandGenerator",
+    "MarimoStopError",
+    "Thread",
+    # Other namespaces
+    "ai",
+    "ui",
+    "islands",
+    # Application elements
+    "accordion",
+    "app_meta",
+    "as_html",
+    "audio",
+    "cache",
+    "callout",
+    "capture_stderr",
+    "capture_stdout",
+    "carousel",
+    "center",
+    "cli_args",
+    "defs",
+    "doc",
+    "download",
+    "hstack",
+    "Html",
+    "icon",
+    "iframe",
+    "image",
+    "lazy",
+    "left",
+    "lru_cache",
+    "md",
+    "mermaid",
+    "mpl",
+    "nav_menu",
+    "notebook_dir",
+    "output",
+    "pdf",
+    "persistent_cache",
+    "plain",
+    "plain_text",
+    "query_params",
+    "redirect_stderr",
+    "redirect_stdout",
+    "refs",
+    "right",
+    "routes",
+    "running_in_notebook",
+    "show_code",
+    "sidebar",
+    "sql",
+    "stat",
+    "state",
+    "status",
+    "stop",
+    "style",
+    "tabs",
+    "tree",
+    "video",
+    "vstack",
+]
+
+#+END_SRC
+** Assignment __version__ = "0.9.27"
+#+BEGIN_SRC python
+__version__ = "0.9.27"
+
+#+END_SRC
+** Import
+#+BEGIN_SRC python
+import marimo._ai as ai
+import marimo._islands as islands
+from marimo._ast.app import App
+from marimo._ast.cell import Cell
+from marimo._islands.island_generator import MarimoIslandGenerator
+from marimo._output.doc import doc
+from marimo._output.formatting import as_html, iframe, plain
+from marimo._output.hypertext import Html
+from marimo._output.justify import center, left, right
+from marimo._output.md import md
+from marimo._output.show_code import show_code
+from marimo._plugins import ui
+from marimo._plugins.stateless import mpl, status
+from marimo._plugins.stateless.accordion import accordion
+from marimo._plugins.stateless.audio import audio
+from marimo._plugins.stateless.callout import callout
+from marimo._plugins.stateless.carousel import carousel
+from marimo._plugins.stateless.download import download
+from marimo._plugins.stateless.flex import hstack, vstack
+from marimo._plugins.stateless.icon import icon
+from marimo._plugins.stateless.image import image
+from marimo._plugins.stateless.lazy import lazy
+from marimo._plugins.stateless.mermaid import mermaid
+from marimo._plugins.stateless.nav_menu import nav_menu
+from marimo._plugins.stateless.pdf import pdf
+from marimo._plugins.stateless.plain_text import plain_text
+from marimo._plugins.stateless.routes import routes
+from marimo._plugins.stateless.sidebar import sidebar
+from marimo._plugins.stateless.stat import stat
+from marimo._plugins.stateless.style import style
+from marimo._plugins.stateless.tabs import tabs
+from marimo._plugins.stateless.tree import tree
+from marimo._plugins.stateless.video import video
+from marimo._runtime import output
+from marimo._runtime.capture import (
+    capture_stderr,
+    capture_stdout,
+    redirect_stderr,
+    redirect_stdout,
+)
+from marimo._runtime.context.utils import running_in_notebook
+from marimo._runtime.control_flow import MarimoStopError, stop
+from marimo._runtime.runtime import (
+    app_meta,
+    cli_args,
+    defs,
+    notebook_dir,
+    query_params,
+    refs,
+)
+from marimo._runtime.state import state
+from marimo._runtime.threads import Thread
+from marimo._save.save import cache, lru_cache, persistent_cache
+from marimo._server.asgi import create_asgi_app
+from marimo._sql.sql import sql
+
+#+END_SRC
+
+* _dependencies
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._dependencies
+:header-args: :tangle ~/projects/marimo/marimo/_dependencies
+:END:
+** dependencies
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._dependencies.dependencies
+:header-args: :tangle ~/projects/marimo//_dependencies/dependencies.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import importlib.metadata
+import importlib.util
+import shutil
+import sys
+from dataclasses import dataclass
+
+#+END_SRC
+*** @dataclass: Class Dependency
+#+BEGIN_SRC python
+@dataclass
+class Dependency:
+    pkg: str
+    min_version: str | None = None
+    max_version: str | None = None
+
+    def has(self) -> bool:
+        """Return True if the dependency is installed."""
+        try:
+            has_dep = importlib.util.find_spec(self.pkg) is not None
+            if not has_dep:
+                return False
+        except ModuleNotFoundError:
+            # Could happen for nested imports (e.g. foo.bar)
+            return False
+
+        if self.min_version or self.max_version:
+            self.warn_if_mismatch_version(self.min_version, self.max_version)
+        return True
+
+    def has_at_version(
+        self, *, min_version: str | None, max_version: str | None = None
+    ) -> bool:
+        if not self.has():
+            return False
+        return _version_check(
+            pkg=self.pkg,
+            v=self.get_version(),
+            min_v=min_version,
+            max_v=max_version,
+        )
+
+    def imported(self) -> bool:
+        return self.pkg in sys.modules
+
+    def require(self, why: str) -> None:
+        """
+        Raise an ModuleNotFoundError if the package is not installed.
+
+        Args:
+            why: A string of the form "for <reason>" that will be appended
+
+        """
+        if not self.has():
+            message = f"{self.pkg} is required {why}."
+            sys.stderr.write(message + "\n\n")
+            raise ModuleNotFoundError(message) from None
+
+    def require_at_version(
+        self,
+        why: str,
+        *,
+        min_version: str | None,
+        max_version: str | None = None,
+    ) -> None:
+        self.require(why)
+
+        _version_check(
+            pkg=self.pkg,
+            v=self.get_version(),
+            min_v=min_version,
+            max_v=max_version,
+            raise_error=True,
+        )
+
+    def get_version(self) -> str:
+        return importlib.metadata.version(self.pkg)
+
+    def warn_if_mismatch_version(
+        self,
+        min_version: str | None = None,
+        max_version: str | None = None,
+    ) -> bool:
+        return _version_check(
+            pkg=self.pkg,
+            v=self.get_version(),
+            min_v=min_version,
+            max_v=max_version,
+            raise_error=False,
+        )
+
+    def require_version(
+        self,
+        min_version: str | None = None,
+        max_version: str | None = None,
+    ) -> None:
+        _version_check(
+            pkg=self.pkg,
+            v=self.get_version(),
+            min_v=min_version,
+            max_v=max_version,
+            raise_error=True,
+        )
+
+#+END_SRC
+*** Function _version_check
+#+BEGIN_SRC python
+def _version_check(
+    *,
+    pkg: str,
+    v: str,
+    min_v: str | None = None,
+    max_v: str | None = None,
+    raise_error: bool = False,
+) -> bool:
+    if min_v is None and max_v is None:
+        return True
+
+    from packaging import version
+
+    parsed_min_version = version.parse(min_v) if min_v else None
+    parsed_max_version = version.parse(max_v) if max_v else None
+    parsed_v = version.parse(v)
+
+    if parsed_min_version is not None and parsed_v < parsed_min_version:
+        msg = f"Mismatched version of {pkg}: expected >={min_v}, got {v}"
+        if raise_error:
+            raise RuntimeError(msg)
+        sys.stderr.write(f"{msg}. Some features may not work correctly.")
+        return False
+
+    if parsed_max_version is not None and parsed_v >= parsed_max_version:
+        msg = f"Mismatched version of {pkg}: expected <{max_v}, got {v}"
+        if raise_error:
+            raise RuntimeError(msg)
+        sys.stderr.write(f"{msg}. Some features may not work correctly.")
+        return False
+
+    return True
+
+#+END_SRC
+*** Class DependencyManager
+#+BEGIN_SRC python
+class DependencyManager:
+    """Utilities for checking the status of dependencies."""
+
+    sympy = Dependency("sympy")
+    pandas = Dependency("pandas")
+    polars = Dependency("polars")
+    ibis = Dependency("ibis")
+    numpy = Dependency("numpy")
+    altair = Dependency("altair", min_version="5.3.0", max_version="6.0.0")
+    duckdb = Dependency("duckdb")
+    pillow = Dependency("PIL")
+    plotly = Dependency("plotly")
+    bokeh = Dependency("bokeh")
+    pyarrow = Dependency("pyarrow")
+    openai = Dependency("openai")
+    matplotlib = Dependency("matplotlib")
+    anywidget = Dependency("anywidget")
+    watchdog = Dependency("watchdog")
+    ipython = Dependency("IPython")
+    ipywidgets = Dependency("ipywidgets")
+    nbformat = Dependency("nbformat")
+    narwhals = Dependency("narwhals")
+    ruff = Dependency("ruff")
+    black = Dependency("black")
+    geopandas = Dependency("geopandas")
+    opentelemetry = Dependency("opentelemetry")
+    anthropic = Dependency("anthropic")
+    google_ai = Dependency("google.generativeai")
+    groq = Dependency("groq")
+    panel = Dependency("panel")
+
+    @staticmethod
+    def has(pkg: str) -> bool:
+        """Return True if any lib is installed."""
+        return Dependency(pkg).has()
+
+    @staticmethod
+    def imported(pkg: str) -> bool:
+        """Return True if the lib has been imported.
+
+        Can be much faster than 'has'.
+        """
+        return Dependency(pkg).imported()
+
+    @staticmethod
+    def which(pkg: str) -> bool:
+        """
+        Checks if a CLI command is installed.
+        """
+        return shutil.which(pkg) is not None
+
+#+END_SRC
+
+* _islands
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._islands
+:header-args: :tangle ~/projects/marimo/marimo/_islands
+:END:
+** __init__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._islands.__init__
+:header-args: :tangle ~/projects/marimo//_islands/__init__.py
+:END:
+*** Assignment __all__ = [     "MarimoIslandGenerator",     "MarimoIslandStub", ]
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+__all__ = [
+    "MarimoIslandGenerator",
+    "MarimoIslandStub",
+]
+
+#+END_SRC
+*** Import
+#+BEGIN_SRC python
+from marimo._islands.island_generator import (
+    MarimoIslandGenerator,
+    MarimoIslandStub,
+)
+
+#+END_SRC
+** island_generator
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._islands.island_generator
+:header-args: :tangle ~/projects/marimo//_islands/island_generator.py
+:END:
+*** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import json
+from textwrap import dedent
+from typing import TYPE_CHECKING, List, Optional, Union, cast
+
+from marimo import __version__, _loggers
+from marimo._ast.app import App, InternalApp, _AppConfig
+from marimo._ast.cell import Cell, CellConfig
+from marimo._ast.compiler import compile_cell
+from marimo._messaging.cell_output import CellOutput
+from marimo._output.formatting import as_html, mime_to_html
+from marimo._output.utils import uri_encode_component
+from marimo._plugins.ui import code_editor
+from marimo._server.export import run_app_until_completion
+from marimo._server.file_manager import AppFileManager
+from marimo._server.file_router import AppFileRouter
+from marimo._utils.marimo_path import MarimoPath
+
+#+END_SRC
+*** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from marimo._server.session.session_view import SessionView
+
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+*** Class MarimoIslandStub
+#+BEGIN_SRC python
+class MarimoIslandStub:
+    def __init__(
+        self,
+        display_code: bool = False,
+        display_output: bool = True,
+        is_reactive: bool = True,
+        *,
+        cell_id: str,
+        app_id: str,
+        code: str,
+    ):
+        self._cell_id = cell_id
+        self._app_id = app_id
+        self._code = code
+        self._display_code = display_code
+        self._display_output = display_output
+        self._is_reactive = is_reactive
+
+        self._internal_app: Optional[InternalApp] = None
+        self._session_view: Optional[SessionView] = None
+        self._output: Optional[CellOutput] = None
+
+    @property
+    def output(self) -> Optional[CellOutput]:
+        # Leave output accessible for direct use for non-interactive cases e.g.
+        # pdf.
+        if self._output is None:
+            if self._session_view is not None:
+                outputs = self._session_view.get_cell_outputs([self._cell_id])
+                self._output = outputs.get(self._cell_id, None)
+        return self._output
+
+    @property
+    def code(self) -> str:
+        return self._code
+
+    def render(
+        self,
+        display_code: Optional[bool] = None,
+        display_output: Optional[bool] = None,
+        is_reactive: Optional[bool] = None,
+    ) -> str:
+        """
+        Render the HTML island code for the cell.
+        Note: This will override construction defaults.
+
+        *Args:*
+
+        - display_code (bool): Whether to display the code in HTML.
+        - display_output (bool): Whether to include the output in the HTML.
+        - is_reactive (bool): Whether this code block will run with pyodide.
+
+        *Returns:*
+
+        - str: The HTML code.
+        """
+
+        is_reactive = (
+            is_reactive if is_reactive is not None else self._is_reactive
+        )
+        display_code = (
+            display_code if display_code is not None else self._display_code
+        )
+        display_output = (
+            display_output
+            if display_output is not None
+            else self._display_output
+        )
+
+        if not (display_code or display_output or is_reactive):
+            raise ValueError("You must include either code or output")
+
+        output = (
+            mime_to_html(self.output.mimetype, self.output.data)
+            if self.output is not None
+            else None
+        )
+
+        # Specifying display_code=False will hide the code block, but still
+        # make it present for reactivity, unless reactivity is disabled.
+        if display_code:
+            # TODO: Allow for non-disabled code editors.
+            code_block = as_html(
+                code_editor(self.code.strip(), disabled=False)
+            ).text
+        else:
+            code_block = (
+                "<marimo-cell-code hidden>"
+                f"{uri_encode_component(self.code) if is_reactive else ''}"
+                "</marimo-cell-code>"
+            )
+
+        # Cell may not have output
+        # (e.g. imports, but still needs to be included)
+        return remove_empty_lines(
+            dedent(
+                f"""
+        <marimo-island
+            data-app-id="{self._app_id}"
+            data-cell-id="{self._cell_id}"
+            data-reactive="{json.dumps(is_reactive)}"
+        >
+            <marimo-cell-output>
+            {output.text if output and display_output else ""}
+            </marimo-cell-output>
+            {code_block}
+        </marimo-island>
+        """
+            )
+        ).strip()
+
+#+END_SRC
+*** Class MarimoIslandGenerator
+#+BEGIN_SRC python
+class MarimoIslandGenerator:
+    """
+    Generates Marimo islands for embedding in other pages.
+
+    This is a great way to use another SSG framework that converts
+    Python code to HTML using marimo-islands.
+
+    Generally you will want to:
+
+    1. Find all the code snippets and add them to the generator.
+    2. Build the app.
+    3. Replace all code snippets with the rendered HTML.
+    4. Include the header in the <head> tag.
+
+    # Example
+
+    ```python
+    from marimo.islands import MarimoIslandGenerator
+
+    generator = MarimoIslandGenerator()
+    block1 = generator.add_code("import marimo as mo")
+    block2 = generator.add_code("mo.md('Hello, islands!')")
+
+    # Build the app
+    app = await generator.build()
+
+    # Render the app
+    output = f\"\"\"
+    <html>
+        <head>
+            {generator.render_head()}
+        </head>
+        <body>
+            {block1.render(display_output=False)}
+            {block2.render()}
+        </body>
+    </html>
+    \"\"\"
+    ```
+    """
+
+    def __init__(self, app_id: str = "main"):
+        self.has_run = False
+        self._app_id = app_id
+        self._app = InternalApp(App())
+        self._stubs: List[MarimoIslandStub] = []
+        self._config = _AppConfig()
+
+    @staticmethod
+    def from_file(
+        filename: str,
+        display_code: bool = False,
+    ) -> MarimoIslandGenerator:
+        """
+        Create a MarimoIslandGenerator and populate MarimoIslandStubs
+        using code cells from a marimo *.py file.
+
+        *Args:*
+
+        - filename (str): Marimo .py filename to convert to reactive HTML.
+        - display_code (bool): Whether to display the code in HTML snippets.
+        """
+        path = MarimoPath(filename)
+        file_router = AppFileRouter.from_filename(path)
+        file_key = file_router.get_unique_file_key()
+        assert file_key is not None
+        file_manager = file_router.get_file_manager(file_key)
+
+        generator = MarimoIslandGenerator()
+        stubs = []
+        for cell_data in file_manager.app.cell_manager.cell_data():
+            stubs.append(
+                generator.add_code(
+                    cell_data.code,
+                    display_code=display_code,
+                )
+            )
+
+        generator._stubs = stubs
+        generator._config = file_manager.app.config
+
+        return generator
+
+    def add_code(
+        self,
+        code: str,
+        display_code: bool = False,
+        display_output: bool = True,
+        is_reactive: bool = True,
+        is_raw: bool = False,
+    ) -> MarimoIslandStub:
+        """Add a code cell to the app.
+
+        *Args:*
+
+        - code (str): The code to add to the app.
+        - display_code (bool): Whether to display the code in the HTML.
+        - display_output (bool): Whether to display the output in the HTML.
+        - is_raw (bool): Whether to handled the code without formatting.
+        - is_reactive (bool): Whether this code block will run with pyodide.
+        """
+        if not is_raw:
+            code = dedent(code)
+
+        cell_id = self._app.cell_manager.create_cell_id()
+        cell_impl = compile_cell(code, cell_id)
+        cell_impl.configure(CellConfig(hide_code=False))
+        cell = Cell(_name="__", _cell=cell_impl)
+
+        self._app.cell_manager._register_cell(
+            cell,
+            app=self._app,
+        )
+
+        stub = MarimoIslandStub(
+            cell_id=cell_id,
+            app_id=self._app_id,
+            code=code,
+            display_code=display_code,
+            display_output=display_output,
+            is_reactive=is_reactive,
+        )
+        self._stubs.append(stub)
+
+        return stub
+
+    async def build(self) -> App:
+        """
+        Build the app. This should be called after adding all the code cells.
+
+        *Returns:*
+
+        - App: The built app.
+        """
+        if self.has_run:
+            raise ValueError("You can only call build() once")
+
+        session = await run_app_until_completion(
+            file_manager=AppFileManager.from_app(self._app),
+            cli_args={},
+        )
+        self.has_run = True
+
+        for stub in self._stubs:
+            stub._internal_app = self._app
+            stub._session_view = session
+
+        return cast(App, self._app)
+
+    def render_head(
+        self,
+        *,
+        version_override: str = __version__,
+        _development_url: Union[str, bool] = False,
+    ) -> str:
+        """
+        Render the header for the app.
+        This should be included in the <head> tag of the page.
+
+        *Args:*
+
+        - version_override (str): Marimo version to use for loaded js/css.
+        - _development_url (str): If True, uses local marimo islands js.
+        """
+
+        # This loads:
+        # - The marimo islands js
+        # - The marimo islands css
+        # - Preconnects to Google Fonts (https://stackoverflow.com/questions/73838138)
+        # - Fonts from Google Fonts
+        #   (otherwise they would get bundled in the css)
+        # - Fonts from KaTeX
+        #   (otherwise they would get bundled in the css)
+
+        base_url = f"https://cdn.jsdelivr.net/npm/@marimo-team/islands@{version_override}"
+        # This should be kept in sync fonts.css in the frontend
+        # Since this is embedded on other pages, we want display=swap
+        # for the most compatible font loading
+        font_url = "https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500;700&amp;family=Lora&amp;family=PT+Sans:wght@400;700&amp;display=swap"
+
+        fonts = f"""
+            <link rel="preconnect" href="https://fonts.googleapis.com" />
+            <link
+                rel="preconnect"
+                href="https://fonts.gstatic.com"
+                crossorigin
+            />
+            <link href="{font_url}" rel="stylesheet" />
+            <link
+                rel="stylesheet"
+                href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css"
+                integrity="sha384-wcIxkf4k558AjM3Yz3BBFQUbk/zgIYC2R0QpeeYb+TwlBVMrlgLqwRjRtGZiK7ww"
+                crossorigin="anonymous"
+            />
+        """.strip()
+
+        if _development_url:
+            base_url = "http://localhost:5174"
+            if isinstance(_development_url, str):
+                base_url = _development_url
+            return dedent(
+                f"""
+                <script
+                    type="module"
+                    src="{base_url}/src/core/islands/main.ts"
+                ></script>
+                {fonts}
+                """
+            ).strip()
+
+        marimo_tags = """
+        <marimo-filename hidden></marimo-filename>
+        <marimo-mode data-mode='read' hidden></marimo-mode>
+        """.strip()
+
+        return dedent(
+            f"""
+            <script type="module" src="{base_url}/dist/main.js"></script>
+            <link
+                href="{base_url}/dist/style.css"
+                rel="stylesheet"
+                crossorigin="anonymous"
+            />
+            {fonts}
+            {marimo_tags}
+            """
+        ).strip()
+
+    def render_init_island(self) -> str:
+        """
+        Renders a static html MarimoIsland str which displays a spinning
+        initialization loader while Pyodide loads and disappears once
+        the kernel is ready to use.
+        """
+
+        init_cell_id = self._app.cell_manager.create_cell_id()
+        init_output = """
+        <div class="marimo">
+          <div class="flex flex-col flex-1 items-center justify-center">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="size-20 animate-spin text-primary"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+            </svg>
+            <div>Initializing...</div>
+          </div>
+        </div>
+        """
+        init_island = dedent(
+            f"""
+            <marimo-island
+                data-app-id="{self._app_id}"
+                data-cell-id="{init_cell_id}"
+                data-reactive="{json.dumps(False)}"
+            >
+                <marimo-cell-output>
+                {init_output}
+                </marimo-cell-output>
+                <marimo-cell-code hidden></marimo-cell-code>
+            </marimo-island>
+            """
+        ).strip()
+
+        return init_island
+
+    def render_body(
+        self,
+        *,
+        include_init_island: bool = True,
+        max_width: Optional[str] = None,
+        margin: Optional[str] = None,
+        style: Optional[str] = None,
+    ) -> str:
+        """
+        Render the body for the app.
+        This should be included in the <body> tag of the page.
+
+        *Args:*
+        - include_init_island (bool): If True, adds initialization loader.
+        - max_width (str): CSS style max_width property.
+        - margin (str): CSS style margin property.
+        - style (str): CSS style. Overrides max_width and margin.
+        """
+
+        rendered_stubs = []
+        for stub in self._stubs:
+            rendered_stubs.append(stub.render())
+
+        if include_init_island:
+            init_island = self.render_init_island()
+            rendered_stubs = [init_island] + rendered_stubs
+
+        body = "\n".join(rendered_stubs)
+
+        if margin is None:
+            margin = "auto"
+        if max_width is None:
+            width = self._config.width
+            if width == "compact" or width == "normal":
+                max_width = "740px"
+            elif width == "medium":
+                max_width = "1110px"
+            else:
+                max_width = "none"
+
+        if style is None:
+            style = f"margin: {margin}; max-width: {max_width};"
+
+        return dedent(
+            f"""
+                <div style="{style}">
+                  {body}
+                </div>
+                """
+        ).strip()
+
+    def render_html(
+        self,
+        *,
+        version_override: str = __version__,
+        _development_url: Union[str, bool] = False,
+        include_init_island: bool = True,
+        max_width: Optional[str] = None,
+        margin: Optional[str] = None,
+        style: Optional[str] = None,
+    ) -> str:
+        """
+        Render reactive html for the app.
+
+        *Args:*
+
+        - version_override (str): Marimo version to use for loaded js/css.
+        - _development_url (str): If True, uses local marimo islands js.
+        - include_init_island (bool): If True, adds initialization loader.
+        - max_width (str): CSS style max_width property.
+        - margin (str): CSS style margin property.
+        - style (str): CSS style. Overrides max_width and margin.
+        """
+        head = self.render_head(
+            version_override=version_override,
+            _development_url=_development_url,
+        )
+        body = self.render_body(
+            include_init_island=include_init_island,
+            max_width=max_width,
+            margin=margin,
+            style=style,
+        )
+        title = (
+            self._app_id
+            if self._config.app_title is None
+            else self._config.app_title
+        )
+
+        return dedent(
+            f"""<!doctype html>
+                <html lang="en">
+                    <head>
+                      <meta charset="UTF-8" />
+                      <title> {title} </title>
+                        {head}
+                    </head>
+                    <body>
+                      {body}
+                    </body>
+                </html>
+                """
+        ).strip()
+
+#+END_SRC
+*** Function remove_empty_lines
+#+BEGIN_SRC python
+def remove_empty_lines(text: str) -> str:
+    return "\n".join([line for line in text.split("\n") if line.strip() != ""])
+
+#+END_SRC
+
+* __main__
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo.__main__
+:header-args: :tangle ~/projects/marimo/marimo/__main__.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from marimo._cli.cli import main
+
+#+END_SRC
+** if_statement
+#+BEGIN_SRC python
+if __name__ == "__main__":
+    main(prog_name="marimo")
+
+#+END_SRC
+
+* _loggers
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._loggers
+:header-args: :tangle ~/projects/marimo/marimo/_loggers.py
+:END:
+** Import
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from marimo._utils.log_formatter import LogFormatter
+
+#+END_SRC
+** Assignment _LOG_LEVEL = logging.WARNING
+#+BEGIN_SRC python
+# Global log level for loggers
+_LOG_LEVEL = logging.WARNING
+
+#+END_SRC
+** Assignment _LOG_FORMATTER = LogFormatter()
+#+BEGIN_SRC python
+# Custom log formatter
+_LOG_FORMATTER = LogFormatter()
+
+#+END_SRC
+** Assignment _LOGGERS: dict[str, logging.Logger] = {}
+#+BEGIN_SRC python
+# Cache of initialized loggers
+_LOGGERS: dict[str, logging.Logger] = {}
+
+#+END_SRC
+** Function log_level_string_to_int
+#+BEGIN_SRC python
+def log_level_string_to_int(level: str) -> int:
+    level = level.upper()
+    if level == "DEBUG":
+        return logging.DEBUG
+    elif level == "INFO":
+        return logging.INFO
+    elif level == "WARN":
+        return logging.WARNING
+    elif level == "WARNING":
+        return logging.WARNING
+    elif level == "ERROR":
+        return logging.ERROR
+    elif level == "CRITICAL":
+        return logging.CRITICAL
+    else:
+        raise ValueError("Unrecognized log level %s" % level)
+
+#+END_SRC
+** Function set_level
+#+BEGIN_SRC python
+def set_level(level: str | int = logging.WARNING) -> None:
+    global _LOG_LEVEL
+    if isinstance(level, str):
+        _LOG_LEVEL = log_level_string_to_int(level)
+    elif level not in [
+        logging.DEBUG,
+        logging.INFO,
+        logging.WARNING,
+        logging.ERROR,
+        logging.CRITICAL,
+    ]:
+        raise ValueError("Unrecognized log level %s" % level)
+    else:
+        _LOG_LEVEL = level
+
+    for logger in _LOGGERS.values():
+        logger.setLevel(_LOG_LEVEL)
+
+#+END_SRC
+** Function get_logger
+#+BEGIN_SRC python
+def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
+    if name in _LOGGERS:
+        return _LOGGERS[name]
+
+    logger = logging.getLogger(name)
+    if level is None:
+        logger.setLevel(_LOG_LEVEL)
+    else:
+        logger.setLevel(level)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(_LOG_FORMATTER)
+    logger.addHandler(stream_handler)
+    _LOGGERS[name] = logger
+    logger.propagate = False
+    return logger
+
+#+END_SRC
+** Function marimo_logger
+#+BEGIN_SRC python
+def marimo_logger() -> logging.Logger:
+    return get_logger("marimo")
+
+#+END_SRC
+
+* _tracer
+:PROPERTIES:
+:LITERATE_ORG_MODULE: marimo._tracer
+:header-args: :tangle ~/projects/marimo/marimo/_tracer.py
+:END:
+** Import statements
+#+BEGIN_SRC python
+# Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import os
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Sequence, cast
+
+from marimo import _loggers
+from marimo._config.settings import GLOBAL_SETTINGS
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._utils.config.config import ConfigReader
+from marimo._utils.platform import is_pyodide
+
+#+END_SRC
+** Assignment LOGGER = _loggers.marimo_logger()
+#+BEGIN_SRC python
+LOGGER = _loggers.marimo_logger()
+
+#+END_SRC
+** Class MockSpan
+#+BEGIN_SRC python
+if TYPE_CHECKING:
+    from opentelemetry import trace
+
+
+class MockSpan:
+    @contextmanager
+    def as_current_span(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield self
+
+    @contextmanager
+    def set_attribute(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield
+
+    @contextmanager
+    def set_status(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield
+
+    @contextmanager
+    def update_name(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield
+
+    @contextmanager
+    def end(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield
+
+    @contextmanager
+    def add_event(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield
+
+    @contextmanager
+    def add_link(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield
+
+    @contextmanager
+    def set_attributes(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield
+
+    @contextmanager
+    def record_exception(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield
+
+#+END_SRC
+** Class MockTracer
+#+BEGIN_SRC python
+class MockTracer:
+    @contextmanager
+    def start_span(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+
+        return MockSpan()
+
+    @contextmanager
+    def start_as_current_span(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        yield MockSpan()
+
+#+END_SRC
+** Assignment TRACE_FILENAME = os.path.join("traces", "spans.jsonl")
+#+BEGIN_SRC python
+TRACE_FILENAME = os.path.join("traces", "spans.jsonl")
+
+#+END_SRC
+** Function _set_tracer_provider
+#+BEGIN_SRC python
+def _set_tracer_provider() -> None:
+    if is_pyodide() or GLOBAL_SETTINGS.TRACING is False:
+        return
+
+    DependencyManager.opentelemetry.require("for tracing.")
+
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+    from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,
+        SpanExporter,
+        SpanExportResult,
+    )
+
+    # If one already exists, return
+    try:
+        trace.get_tracer_provider()
+    except Exception:
+        return
+
+    class FileExporter(SpanExporter):
+        def __init__(self, file_path: str) -> None:
+            self.file_path: str = file_path
+            # Clear file
+            open(self.file_path, "w").close()
+
+        def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+            try:
+                with open(self.file_path, "a") as f:
+                    for span in spans:
+                        f.write(span.to_json(cast(Any, None)))
+                        f.write("\n")
+                return SpanExportResult.SUCCESS
+            except Exception as e:
+                LOGGER.exception(e)
+                return SpanExportResult.FAILURE
+
+        def shutdown(self) -> None:
+            pass
+
+    # Create a directory for logs if it doesn't exist
+    config_ready = ConfigReader.for_filename(TRACE_FILENAME)
+    if config_ready is None:
+        raise FileNotFoundError(
+            f"Could not local config file {TRACE_FILENAME}"
+        )
+
+    filepath = config_ready.filepath
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    # Create a file exporter
+    file_exporter: FileExporter = FileExporter(filepath)
+
+    provider = TracerProvider()
+    processor = BatchSpanProcessor(file_exporter)
+    provider.add_span_processor(processor)
+
+    # Sets the global default tracer provider
+    trace.set_tracer_provider(provider)
+
+#+END_SRC
+** Function create_tracer
+#+BEGIN_SRC python
+def create_tracer(trace_name: str) -> "trace.Tracer":
+    """
+    Creates a tracer that logs to a file.
+
+    This lazily loads opentelemetry.
+    """
+
+    # Don't load opentelemetry if we're in a Pyodide environment.
+    if is_pyodide() or GLOBAL_SETTINGS.TRACING is False:
+        return cast(Any, MockTracer())  # type: ignore[no-any-return]
+
+    DependencyManager.opentelemetry.require("for tracing.")
+
+    try:
+        from opentelemetry import trace
+
+        return trace.get_tracer(
+            trace_name,
+            attributes={
+                "service.name": trace_name,
+            },
+        )
+
+    except Exception as e:
+        LOGGER.debug("Failed to create tracer: %s", e)
+
+    return cast(Any, MockTracer())  # type: ignore[no-any-return]
+
+#+END_SRC
+** Assignment server_tracer = create_tracer("marimo.server")
+#+BEGIN_SRC python
+try:
+    _set_tracer_provider()
+except Exception as e:
+    LOGGER.debug("Failed to set tracer provider", exc_info=e)
+
+server_tracer = create_tracer("marimo.server")
+
+#+END_SRC
+** Assignment kernel_tracer = create_tracer("marimo.kernel")
+#+BEGIN_SRC python
+kernel_tracer = create_tracer("marimo.kernel")
+
+#+END_SRC
